@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Upload,
   Camera,
@@ -14,26 +14,96 @@ import {
   Eye,
   ChevronDown,
   Search,
+  X,
 } from 'lucide-react';
-import { mockOperations, mockOperationPhotos } from '@/data/mockData';
-import type { Operation } from '@/data/types';
+import { mockOperations } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
+import type { Operation, OperationPhoto, PhotoType } from '@/data/types';
 
 export default function Operations() {
+  const { operations, operationPhotos, addOperationPhoto } = useAppStore();
   const [selectedOperation, setSelectedOperation] = useState<Operation | null>(
-    mockOperations.find((o) => o.status === 'in_progress') || null
+    operations.find((o) => o.status === 'in_progress') || null
   );
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadType, setUploadType] = useState<PhotoType>('before');
+  const [uploadDescription, setUploadDescription] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<{ url: string; name: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredOperations = mockOperations.filter(
+  const filteredOperations = operations.filter(
     (op) => statusFilter === 'all' || op.status === statusFilter
   );
 
-  const operationPhotos = selectedOperation
-    ? mockOperationPhotos.filter((p) => p.operation_id === selectedOperation.id)
+  const currentPhotos = selectedOperation
+    ? operationPhotos.filter((p) => p.operation_id === selectedOperation.id)
     : [];
 
-  const inProgressOperations = mockOperations.filter((o) => o.status === 'in_progress');
+  const inProgressOperations = operations.filter((o) => o.status === 'in_progress');
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      const newFiles = Array.from(files).map((file) => ({
+        url: URL.createObjectURL(file),
+        name: file.name,
+      }));
+      setSelectedFiles((prev) => [...prev, ...newFiles]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUploadSubmit = () => {
+    if (!selectedOperation) return;
+    if (selectedFiles.length === 0) {
+      alert('请选择要上传的文件');
+      return;
+    }
+
+    selectedFiles.forEach((file, index) => {
+      const newPhoto: OperationPhoto = {
+        id: `p${Date.now()}${index}`,
+        operation_id: selectedOperation.id,
+        url: file.url,
+        type: uploadType,
+        description: uploadDescription || `${uploadType === 'before' ? '作业前' : uploadType === 'during' ? '作业中' : '作业后'}照片`,
+        uploaded_at: new Date().toISOString(),
+      };
+      addOperationPhoto(newPhoto);
+    });
+
+    setShowUploadModal(false);
+    setSelectedFiles([]);
+    setUploadDescription('');
+    setUploadType('before');
+    alert('上传成功！');
+  };
+
+  const getPhotoTypeLabel = (type: PhotoType) => {
+    switch (type) {
+      case 'before': return '作业前';
+      case 'during': return '作业中';
+      case 'after': return '作业后';
+    }
+  };
+
+  const getPhotoTypeColor = (type: PhotoType) => {
+    switch (type) {
+      case 'before': return 'bg-blue-500 text-white';
+      case 'during': return 'bg-yellow-500 text-white';
+      case 'after': return 'bg-green-500 text-white';
+    }
+  };
+
+  const photosByType = {
+    before: currentPhotos.filter((p) => p.type === 'before'),
+    during: currentPhotos.filter((p) => p.type === 'during'),
+    after: currentPhotos.filter((p) => p.type === 'after'),
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -42,7 +112,11 @@ export default function Operations() {
           <h1 className="text-2xl font-bold text-gray-800">作业回传</h1>
           <p className="text-gray-500 mt-1">实时监控作业进度，回传作业数据和照片</p>
         </div>
-        <button onClick={() => setShowUploadModal(true)} className="btn-primary flex items-center gap-2">
+        <button
+          onClick={() => selectedOperation && setShowUploadModal(true)}
+          disabled={!selectedOperation}
+          className={`btn-primary flex items-center gap-2 ${!selectedOperation ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
           <Upload className="w-5 h-5" />
           上传作业数据
         </button>
@@ -56,7 +130,7 @@ export default function Operations() {
             </div>
             <div>
               <p className="text-sm text-gray-500">今日作业</p>
-              <p className="text-2xl font-bold text-gray-800">{mockOperations.length}</p>
+              <p className="text-2xl font-bold text-gray-800">{operations.length}</p>
             </div>
           </div>
         </div>
@@ -68,7 +142,7 @@ export default function Operations() {
             <div>
               <p className="text-sm text-gray-500">已完成</p>
               <p className="text-2xl font-bold text-gray-800">
-                {mockOperations.filter((o) => o.status === 'completed').length}
+                {operations.filter((o) => o.status === 'completed').length}
               </p>
             </div>
           </div>
@@ -94,7 +168,7 @@ export default function Operations() {
             <div>
               <p className="text-sm text-gray-500">今日作业面积</p>
               <p className="text-2xl font-bold text-gray-800">
-                {mockOperations.reduce((sum, o) => sum + (o.actual_area || 0), 0).toFixed(1)}
+                {operations.reduce((sum, o) => sum + (o.actual_area || 0), 0).toFixed(1)}
                 <span className="text-sm font-normal">亩</span>
               </p>
             </div>
@@ -262,40 +336,42 @@ export default function Operations() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3">
-                  {operationPhotos.map((photo) => (
-                    <div key={photo.id} className="relative group">
-                      <div
-                        className="aspect-square rounded-xl bg-cover bg-center"
-                        style={{
-                          backgroundImage: photo.type === 'before'
-                            ? 'url(https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=300&h=300&fit=crop)'
-                            : photo.type === 'during'
-                            ? 'url(https://images.unsplash.com/photo-1473448912268-2022ce9509d8?w=300&h=300&fit=crop)'
-                            : 'url(https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=300&h=300&fit=crop)',
-                        }}
-                      >
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
-                          <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="space-y-6">
+                  {(['before', 'during', 'after'] as PhotoType[]).map((type) => (
+                    <div key={type}>
+                      <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPhotoTypeColor(type)}`}>
+                          {getPhotoTypeLabel(type)}
+                        </span>
+                        <span className="text-gray-400">共 {photosByType[type].length} 张</span>
+                      </h4>
+                      <div className="grid grid-cols-4 gap-3">
+                        {photosByType[type].map((photo) => (
+                          <div key={photo.id} className="relative group">
+                            <div
+                              className="aspect-square rounded-xl bg-cover bg-center border border-gray-100"
+                              style={{ backgroundImage: `url(${photo.url})` }}
+                            >
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
+                                <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1 truncate">{photo.description}</p>
+                          </div>
+                        ))}
+                        <div
+                          onClick={() => {
+                            setUploadType(type);
+                            setShowUploadModal(true);
+                          }}
+                          className="aspect-square rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all"
+                        >
+                          <Camera className="w-8 h-8 text-gray-400 mb-2" />
+                          <p className="text-xs text-gray-500">添加照片</p>
                         </div>
                       </div>
-                      <span className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${
-                        photo.type === 'before' ? 'bg-blue-500 text-white' :
-                        photo.type === 'during' ? 'bg-yellow-500 text-white' :
-                        'bg-green-500 text-white'
-                      }`}>
-                        {photo.type === 'before' ? '作业前' : photo.type === 'during' ? '作业中' : '作业后'}
-                      </span>
-                      <p className="text-xs text-gray-500 mt-1 truncate">{photo.description}</p>
                     </div>
                   ))}
-                  <div
-                    onClick={() => setShowUploadModal(true)}
-                    className="aspect-square rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all"
-                  >
-                    <Camera className="w-8 h-8 text-gray-400 mb-2" />
-                    <p className="text-xs text-gray-500">添加照片</p>
-                  </div>
                 </div>
               </div>
 
@@ -338,47 +414,95 @@ export default function Operations() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
             <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold text-gray-800">上传作业数据</h3>
+              <h3 className="text-xl font-bold text-gray-800">上传作业照片</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                当前作业：{selectedOperation?.farmland_name}
+              </p>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">作业类型</label>
-                <select className="input-field">
-                  <option>选择作业</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">上传照片/视频</label>
-                <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 hover:bg-primary-50 transition-all cursor-pointer">
-                  <Image className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 font-medium">点击或拖拽上传文件</p>
-                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG、MP4 格式</p>
+                <label className="block text-sm font-medium text-gray-700 mb-2">照片类型</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['before', 'during', 'after'] as PhotoType[]).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setUploadType(type)}
+                      className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        uploadType === type
+                          ? 'bg-primary-100 text-primary-700 border-2 border-primary-500'
+                          : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                      }`}
+                    >
+                      {getPhotoTypeLabel(type)}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="flex gap-3">
-                <button className="flex-1 py-2.5 border border-gray-200 rounded-lg text-gray-600 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
-                  <Image className="w-5 h-5" />
-                  上传照片
-                </button>
-                <button className="flex-1 py-2.5 border border-gray-200 rounded-lg text-gray-600 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
-                  <Video className="w-5 h-5" />
-                  上传视频
-                </button>
-              </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">备注</label>
-                <textarea rows={2} placeholder="填写作业情况说明..." className="input-field resize-none" />
+                <label className="block text-sm font-medium text-gray-700 mb-2">上传照片</label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 hover:bg-primary-50 transition-all cursor-pointer"
+                >
+                  <Image className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600 font-medium">点击选择照片</p>
+                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG 格式，可多选</p>
+                </div>
+
+                {selectedFiles.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                        <div
+                          className="w-12 h-12 rounded bg-cover bg-center flex-shrink-0"
+                          style={{ backgroundImage: `url(${file.url})` }}
+                        />
+                        <span className="text-sm text-gray-700 flex-1 truncate">{file.name}</span>
+                        <button
+                          onClick={() => removeFile(index)}
+                          className="p-1 hover:bg-gray-200 rounded transition-colors"
+                        >
+                          <X className="w-4 h-4 text-gray-500" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">照片描述</label>
+                <textarea
+                  rows={2}
+                  value={uploadDescription}
+                  onChange={(e) => setUploadDescription(e.target.value)}
+                  placeholder="填写作业情况说明..."
+                  className="input-field resize-none"
+                />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setShowUploadModal(false)}
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setSelectedFiles([]);
+                  setUploadDescription('');
+                }}
                 className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 取消
               </button>
-              <button onClick={() => setShowUploadModal(false)} className="btn-primary px-5 py-2.5">
-                提交
+              <button onClick={handleUploadSubmit} className="btn-primary px-5 py-2.5">
+                提交上传
               </button>
             </div>
           </div>

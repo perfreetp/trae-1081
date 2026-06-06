@@ -118,6 +118,7 @@ export interface Schedule {
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
   start_time?: string;
   end_time?: string;
+  notes?: string;
 }
 
 export interface WeatherInfo {
@@ -145,18 +146,29 @@ export interface Operation {
   end_time?: string;
 }
 
+export type PhotoType = 'before' | 'during' | 'after';
+
 export interface OperationPhoto {
   id: string;
   operation_id: string;
   url: string;
-  type: 'before' | 'during' | 'after';
+  type: PhotoType;
   upload_time: string;
+  uploaded_at?: string;
   description?: string;
+}
+
+export interface BillItem {
+  name: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
 }
 
 export interface Bill {
   id: string;
   appointment_id: string;
+  farmland_id?: string;
   farmland_name: string;
   farmer_name: string;
   total_amount: number;
@@ -164,9 +176,11 @@ export interface Bill {
   status: 'unpaid' | 'partial' | 'paid' | 'overdue';
   due_date: string;
   paid_date?: string;
-  items: { name: string; quantity: number; unit_price: number; subtotal: number }[];
+  items: BillItem[];
   created_at: string;
 }
+
+export type ResprayStatus = 'pending' | 'approved' | 'completed' | 'rejected';
 
 export interface Evaluation {
   id: string;
@@ -177,9 +191,10 @@ export interface Evaluation {
   comment: string;
   needs_respray: boolean;
   respray_reason?: string;
+  respray_note?: string;
   evaluation_date: string;
   farmer_signature?: string;
-  respray_status?: 'pending' | 'approved' | 'completed' | 'rejected';
+  respray_status?: ResprayStatus;
 }
 
 export interface SeasonStats {

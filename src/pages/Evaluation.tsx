@@ -27,8 +27,9 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
-import { mockEvaluations, mockSeasonStats } from '@/data/mockData';
-import type { Evaluation } from '@/data/types';
+import { mockSeasonStats } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
+import type { Evaluation, ResprayStatus } from '@/data/types';
 
 const satisfactionData = [
   { month: '1月', satisfaction: 88, respray_rate: 5 },
@@ -40,18 +41,34 @@ const satisfactionData = [
 ];
 
 export default function Evaluation() {
+  const { evaluations, updateEvaluationResprayStatus } = useAppStore();
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showResprayModal, setShowResprayModal] = useState(false);
+  const [resprayAction, setResprayAction] = useState<'approve' | 'reject' | null>(null);
+  const [resprayNote, setResprayNote] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredEvaluations = mockEvaluations.filter(
-    (e) => filterStatus === 'all' || (filterStatus === 'need_respray' && e.needs_respray) || (filterStatus === 'normal' && !e.needs_respray)
-  );
+  const filteredEvaluations = evaluations.filter((e) => {
+    const matchStatus = filterStatus === 'all' ||
+      (filterStatus === 'need_respray' && e.needs_respray) ||
+      (filterStatus === 'normal' && !e.needs_respray) ||
+      (filterStatus === 'pending' && e.needs_respray && e.respray_status === 'pending') ||
+      (filterStatus === 'approved' && e.needs_respray && e.respray_status === 'approved') ||
+      (filterStatus === 'rejected' && e.needs_respray && e.respray_status === 'rejected');
+    const matchSearch = !searchTerm ||
+      e.farmland_name.includes(searchTerm) ||
+      e.farmer_name.includes(searchTerm);
+    return matchStatus && matchSearch;
+  });
 
-  const avgRating = mockEvaluations.reduce((sum, e) => sum + e.rating, 0) / mockEvaluations.length;
-  const resprayCount = mockEvaluations.filter((e) => e.needs_respray).length;
-  const goodRatingCount = mockEvaluations.filter((e) => e.rating >= 4).length;
-  const satisfactionRate = (goodRatingCount / mockEvaluations.length) * 100;
+  const avgRating = evaluations.length > 0
+    ? evaluations.reduce((sum, e) => sum + e.rating, 0) / evaluations.length
+    : 0;
+  const resprayCount = evaluations.filter((e) => e.needs_respray).length;
+  const pendingResprayCount = evaluations.filter((e) => e.needs_respray && e.respray_status === 'pending').length;
+  const goodRatingCount = evaluations.filter((e) => e.rating >= 4).length;
+  const satisfactionRate = evaluations.length > 0 ? (goodRatingCount / evaluations.length) * 100 : 0;
 
   const renderStars = (rating: number) => {
     return (
@@ -68,10 +85,45 @@ export default function Evaluation() {
     );
   };
 
-  const handleResprayAction = (evaluation: Evaluation, action: 'approve' | 'reject') => {
+  const handleOpenRespray = (evaluation: Evaluation, action: 'approve' | 'reject') => {
     setSelectedEvaluation(evaluation);
+    setResprayAction(action);
+    setResprayNote('');
     setShowResprayModal(true);
   };
+
+  const handleConfirmRespray = () => {
+    if (!selectedEvaluation || !resprayAction) return;
+
+    const newStatus: ResprayStatus = resprayAction === 'approve' ? 'approved' : 'rejected';
+    updateEvaluationResprayStatus(selectedEvaluation.id, newStatus, resprayNote);
+
+    setShowResprayModal(false);
+    setSelectedEvaluation(null);
+    setResprayAction(null);
+    setResprayNote('');
+    alert(resprayAction === 'approve' ? '补喷申请已批准！' : '补喷申请已驳回');
+  };
+
+  const getResprayStatusLabel = (status?: ResprayStatus) => {
+    switch (status) {
+      case 'approved': return '已批准';
+      case 'rejected': return '已驳回';
+      default: return '待处理';
+    }
+  };
+
+  const getResprayStatusColor = (status?: ResprayStatus) => {
+    switch (status) {
+      case 'approved': return 'text-green-600 bg-green-100';
+      case 'rejected': return 'text-red-600 bg-red-100';
+      default: return 'text-orange-600 bg-yellow-100';
+    }
+  };
+
+  const pendingResprays = evaluations.filter(
+    (e) => e.needs_respray && e.respray_status === 'pending'
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -121,8 +173,8 @@ export default function Evaluation() {
               <RefreshCw className="w-6 h-6 text-orange-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">补喷申请</p>
-              <p className="text-2xl font-bold text-orange-600">{resprayCount}笔</p>
+              <p className="text-sm text-gray-500">待处理补喷</p>
+              <p className="text-2xl font-bold text-orange-600">{pendingResprayCount}笔</p>
             </div>
           </div>
         </div>
@@ -133,7 +185,7 @@ export default function Evaluation() {
             </div>
             <div>
               <p className="text-sm text-gray-500">总评价数</p>
-              <p className="text-2xl font-bold text-gray-800">{mockEvaluations.length}</p>
+              <p className="text-2xl font-bold text-gray-800">{evaluations.length}</p>
             </div>
           </div>
         </div>
@@ -183,6 +235,8 @@ export default function Evaluation() {
                   <input
                     type="text"
                     placeholder="搜索评价..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                     className="input-field pl-9 w-48 text-sm"
                   />
                 </div>
@@ -195,6 +249,9 @@ export default function Evaluation() {
                     <option value="all">全部</option>
                     <option value="normal">正常评价</option>
                     <option value="need_respray">需补喷</option>
+                    <option value="pending">待处理</option>
+                    <option value="approved">已批准</option>
+                    <option value="rejected">已驳回</option>
                   </select>
                   <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -217,9 +274,12 @@ export default function Evaluation() {
                       <div className="flex items-center gap-3 mb-2">
                         {renderStars(evaluation.rating)}
                         {evaluation.needs_respray && (
-                          <span className="badge badge-warning flex items-center gap-1">
+                          <span className={`badge flex items-center gap-1 ${
+                            evaluation.respray_status === 'pending' ? 'badge-warning' :
+                            evaluation.respray_status === 'approved' ? 'badge-success' : 'badge-info'
+                          }`}>
                             <RefreshCw className="w-3 h-3" />
-                            申请补喷
+                            {getResprayStatusLabel(evaluation.respray_status)}
                           </span>
                         )}
                       </div>
@@ -230,17 +290,9 @@ export default function Evaluation() {
                             <span className="font-medium">补喷原因：</span>
                             {evaluation.respray_reason}
                           </p>
-                          {evaluation.respray_status && (
-                            <p className="text-xs mt-1">
-                              处理状态: 
-                              <span className={`ml-1 ${
-                                evaluation.respray_status === 'approved' ? 'text-green-600' :
-                                evaluation.respray_status === 'rejected' ? 'text-red-600' :
-                                'text-orange-600'
-                              }`}>
-                                {evaluation.respray_status === 'approved' ? '已批准' :
-                                 evaluation.respray_status === 'rejected' ? '已驳回' : '待处理'}
-                              </span>
+                          {evaluation.respray_note && (
+                            <p className="text-xs mt-1 text-gray-500">
+                              处理备注：{evaluation.respray_note}
                             </p>
                           )}
                         </div>
@@ -250,20 +302,23 @@ export default function Evaluation() {
                       <button
                         onClick={() => setSelectedEvaluation(evaluation)}
                         className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="查看详情"
                       >
                         <Eye className="w-4 h-4 text-gray-600" />
                       </button>
                       {evaluation.needs_respray && evaluation.respray_status === 'pending' && (
                         <>
                           <button
-                            onClick={() => handleResprayAction(evaluation, 'approve')}
+                            onClick={() => handleOpenRespray(evaluation, 'approve')}
                             className="p-2 hover:bg-green-50 rounded-lg transition-colors"
+                            title="批准补喷"
                           >
                             <CheckCircle className="w-4 h-4 text-green-600" />
                           </button>
                           <button
-                            onClick={() => handleResprayAction(evaluation, 'reject')}
+                            onClick={() => handleOpenRespray(evaluation, 'reject')}
                             className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                            title="驳回申请"
                           >
                             <XCircle className="w-4 h-4 text-red-600" />
                           </button>
@@ -273,6 +328,11 @@ export default function Evaluation() {
                   </div>
                 </div>
               ))}
+              {filteredEvaluations.length === 0 && (
+                <div className="p-8 text-center text-gray-400">
+                  暂无评价记录
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -282,8 +342,8 @@ export default function Evaluation() {
             <h3 className="font-semibold text-gray-800 mb-4">评分分布</h3>
             <div className="space-y-3">
               {[5, 4, 3, 2, 1].map((star) => {
-                const count = mockEvaluations.filter((e) => e.rating === star).length;
-                const percent = (count / mockEvaluations.length) * 100;
+                const count = evaluations.filter((e) => e.rating === star).length;
+                const percent = evaluations.length > 0 ? (count / evaluations.length) * 100 : 0;
                 return (
                   <div key={star} className="flex items-center gap-3">
                     <div className="flex items-center gap-1 w-16">
@@ -306,35 +366,33 @@ export default function Evaluation() {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
             <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <RefreshCw className="w-5 h-5 text-orange-500" />
-              待处理补喷
+              待处理补喷 ({pendingResprays.length})
             </h3>
             <div className="space-y-3">
-              {mockEvaluations
-                .filter((e) => e.needs_respray && e.respray_status === 'pending')
-                .map((evaluation) => (
-                  <div key={evaluation.id} className="p-3 bg-orange-50 rounded-xl border border-orange-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-gray-800 text-sm">{evaluation.farmland_name}</p>
-                      <span className="text-xs text-gray-500">{evaluation.evaluation_date}</span>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-2">{evaluation.respray_reason}</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleResprayAction(evaluation, 'approve')}
-                        className="flex-1 py-1.5 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600 transition-colors"
-                      >
-                        批准补喷
-                      </button>
-                      <button
-                        onClick={() => handleResprayAction(evaluation, 'reject')}
-                        className="flex-1 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300 transition-colors"
-                      >
-                        驳回
-                      </button>
-                    </div>
+              {pendingResprays.map((evaluation) => (
+                <div key={evaluation.id} className="p-3 bg-orange-50 rounded-xl border border-orange-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-medium text-gray-800 text-sm">{evaluation.farmland_name}</p>
+                    <span className="text-xs text-gray-500">{evaluation.evaluation_date}</span>
                   </div>
-                ))}
-              {mockEvaluations.filter((e) => e.needs_respray && e.respray_status === 'pending').length === 0 && (
+                  <p className="text-xs text-gray-600 mb-2">{evaluation.respray_reason}</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleOpenRespray(evaluation, 'approve')}
+                      className="flex-1 py-1.5 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600 transition-colors"
+                    >
+                      批准补喷
+                    </button>
+                    <button
+                      onClick={() => handleOpenRespray(evaluation, 'reject')}
+                      className="flex-1 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300 transition-colors"
+                    >
+                      驳回
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pendingResprays.length === 0 && (
                 <p className="text-center text-gray-400 py-4 text-sm">暂无待处理补喷申请</p>
               )}
             </div>
@@ -369,7 +427,7 @@ export default function Evaluation() {
         </div>
       </div>
 
-      {selectedEvaluation && (
+      {selectedEvaluation && !showResprayModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
             <div className="p-6 border-b border-gray-100">
@@ -404,18 +462,16 @@ export default function Evaluation() {
                     <span className="font-medium text-orange-700">申请补喷</span>
                   </div>
                   <p className="text-gray-700">{selectedEvaluation.respray_reason}</p>
-                  {selectedEvaluation.respray_status && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className="text-sm text-gray-600">处理状态:</span>
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        selectedEvaluation.respray_status === 'approved' ? 'bg-green-100 text-green-700' :
-                        selectedEvaluation.respray_status === 'rejected' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {selectedEvaluation.respray_status === 'approved' ? '已批准' :
-                         selectedEvaluation.respray_status === 'rejected' ? '已驳回' : '待处理'}
-                      </span>
-                    </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-sm text-gray-600">处理状态:</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${getResprayStatusColor(selectedEvaluation.respray_status)}`}>
+                      {getResprayStatusLabel(selectedEvaluation.respray_status)}
+                    </span>
+                  </div>
+                  {selectedEvaluation.respray_note && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      处理备注：{selectedEvaluation.respray_note}
+                    </p>
                   )}
                 </div>
               )}
@@ -427,23 +483,43 @@ export default function Evaluation() {
                 </div>
               )}
             </div>
-            <div className="p-6 border-t border-gray-100 flex justify-end">
-              <button
-                onClick={() => setSelectedEvaluation(null)}
-                className="btn-primary px-5 py-2.5"
-              >
-                关闭
-              </button>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              {selectedEvaluation.needs_respray && selectedEvaluation.respray_status === 'pending' && (
+                <>
+                  <button
+                    onClick={() => handleOpenRespray(selectedEvaluation, 'reject')}
+                    className="px-5 py-2.5 border border-red-200 rounded-lg font-medium text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    驳回
+                  </button>
+                  <button
+                    onClick={() => handleOpenRespray(selectedEvaluation, 'approve')}
+                    className="btn-primary px-5 py-2.5"
+                  >
+                    批准补喷
+                  </button>
+                </>
+              )}
+              {(!selectedEvaluation.needs_respray || selectedEvaluation.respray_status !== 'pending') && (
+                <button
+                  onClick={() => setSelectedEvaluation(null)}
+                  className="btn-primary px-5 py-2.5"
+                >
+                  关闭
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {showResprayModal && selectedEvaluation && (
+      {showResprayModal && selectedEvaluation && resprayAction && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
             <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold text-gray-800">处理补喷申请</h3>
+              <h3 className="text-xl font-bold text-gray-800">
+                {resprayAction === 'approve' ? '批准补喷申请' : '驳回补喷申请'}
+              </h3>
             </div>
             <div className="p-6 space-y-4">
               <div className="bg-gray-50 rounded-xl p-4">
@@ -455,23 +531,31 @@ export default function Evaluation() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">处理备注</label>
                 <textarea
                   rows={3}
-                  placeholder="请输入处理意见..."
+                  value={resprayNote}
+                  onChange={(e) => setResprayNote(e.target.value)}
+                  placeholder={resprayAction === 'approve' ? '请输入批准意见（可选）...' : '请输入驳回原因...'}
                   className="input-field resize-none"
                 />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setShowResprayModal(false)}
+                onClick={() => {
+                  setShowResprayModal(false);
+                  setSelectedEvaluation(null);
+                  setResprayAction(null);
+                }}
                 className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 取消
               </button>
               <button
-                onClick={() => setShowResprayModal(false)}
-                className="btn-primary px-5 py-2.5"
+                onClick={handleConfirmRespray}
+                className={`px-5 py-2.5 rounded-lg font-medium text-white transition-colors ${
+                  resprayAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
               >
-                确认处理
+                确认{resprayAction === 'approve' ? '批准' : '驳回'}
               </button>
             </div>
           </div>

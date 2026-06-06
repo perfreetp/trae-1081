@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Map,
   PenTool,
@@ -9,25 +9,118 @@ import {
   CheckCircle,
   Clock,
   Plus,
-  Eye,
-  Edit,
+  Undo2,
 } from 'lucide-react';
-import { mockSurveys } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
 import type { Survey } from '@/data/types';
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 export default function Surveying() {
+  const { surveys, updateSurvey } = useAppStore();
   const [selectedSurvey, setSelectedSurvey] = useState<Survey | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [mapType, setMapType] = useState<'satellite' | 'standard'>('satellite');
+  const [points, setPoints] = useState<Point[]>([]);
   const [drawnArea, setDrawnArea] = useState<number>(0);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
-  const pendingSurveys = mockSurveys.filter((s) => s.status === 'pending');
-  const completedSurveys = mockSurveys.filter((s) => s.status === 'completed');
+  const pendingSurveys = surveys.filter((s) => s.status === 'pending');
+  const completedSurveys = surveys.filter((s) => s.status === 'completed');
+
+  const calculatePolygonArea = (pts: Point[]): number => {
+    if (pts.length < 3) return 0;
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      area += pts[i].x * pts[j].y;
+      area -= pts[j].x * pts[i].y;
+    }
+    area = Math.abs(area) / 2;
+    const pixelToMu = 0.0008;
+    return area * pixelToMu;
+  };
+
+  useEffect(() => {
+    const area = calculatePolygonArea(points);
+    setDrawnArea(area);
+  }, [points]);
+
+  useEffect(() => {
+    if (selectedSurvey && selectedSurvey.status === 'completed' && points.length === 0) {
+      const savedPoints = selectedSurvey.boundary_coords;
+      if (savedPoints) {
+        try {
+          const parsed = JSON.parse(savedPoints) as Point[];
+          setPoints(parsed);
+          setDrawnArea(selectedSurvey.measured_area);
+        } catch (e) {
+          console.error('解析边界坐标失败');
+        }
+      }
+    }
+  }, [selectedSurvey]);
+
+  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || !mapContainerRef.current) return;
+    const rect = mapContainerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setPoints([...points, { x, y }]);
+  };
 
   const handleStartDrawing = () => {
     setIsDrawing(true);
+    setPoints([]);
     setDrawnArea(0);
   };
+
+  const handleClear = () => {
+    setPoints([]);
+    setDrawnArea(0);
+    setIsDrawing(false);
+  };
+
+  const handleUndo = () => {
+    if (points.length > 0) {
+      setPoints(points.slice(0, -1));
+    }
+  };
+
+  const handleSave = () => {
+    if (!selectedSurvey || points.length < 3) {
+      alert('请至少绘制3个点形成闭合区域');
+      return;
+    }
+    const updatedSurvey: Survey = {
+      ...selectedSurvey,
+      status: 'completed',
+      measured_area: parseFloat(drawnArea.toFixed(2)),
+      survey_date: new Date().toISOString().split('T')[0],
+      surveyor: '当前用户',
+      boundary_coords: JSON.stringify(points),
+    };
+    updateSurvey(updatedSurvey);
+    setSelectedSurvey(updatedSurvey);
+    setIsDrawing(false);
+    alert('测绘结果保存成功！');
+  };
+
+  const getPolygonPoints = () => {
+    return points.map((p) => `${p.x},${p.y}`).join(' ');
+  };
+
+  const getPolygonCenter = () => {
+    if (points.length < 3) return { x: 0, y: 0 };
+    const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+    const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+    return { x, y };
+  };
+
+  const center = getPolygonCenter();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -97,10 +190,15 @@ export default function Surveying() {
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
             <h3 className="font-semibold text-gray-800 mb-4">测绘任务列表</h3>
             <div className="space-y-2 max-h-[500px] overflow-y-auto">
-              {mockSurveys.map((survey) => (
+              {surveys.map((survey) => (
                 <div
                   key={survey.id}
-                  onClick={() => setSelectedSurvey(survey)}
+                  onClick={() => {
+                    setSelectedSurvey(survey);
+                    setPoints([]);
+                    setDrawnArea(0);
+                    setIsDrawing(false);
+                  }}
                   className={`p-4 rounded-xl cursor-pointer transition-all ${
                     selectedSurvey?.id === survey.id
                       ? 'bg-primary-50 border-2 border-primary-500'
@@ -145,6 +243,11 @@ export default function Surveying() {
                     已绘制: {drawnArea.toFixed(2)}亩
                   </span>
                 )}
+                {isDrawing && (
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-medium animate-pulse">
+                    点击地图添加边界点 ({points.length}个点)
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex bg-gray-100 rounded-lg p-1">
@@ -175,7 +278,12 @@ export default function Surveying() {
               </div>
             </div>
 
-            <div className="relative" style={{ height: '480px' }}>
+            <div
+              ref={mapContainerRef}
+              className="relative cursor-crosshair select-none"
+              style={{ height: '480px' }}
+              onClick={handleMapClick}
+            >
               <div
                 className="absolute inset-0 bg-cover bg-center"
                 style={{
@@ -184,39 +292,78 @@ export default function Surveying() {
                     : 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
                 }}
               >
-                <div className="absolute inset-0 bg-black/5">
-                  {selectedSurvey?.status === 'completed' && (
-                    <svg className="absolute inset-0 w-full h-full">
-                      <polygon
-                        points="100,150 300,100 450,200 400,380 150,400 80,280"
-                        fill="rgba(46, 125, 50, 0.2)"
-                        stroke="#2E7D32"
-                        strokeWidth="3"
-                        strokeDasharray="10,5"
+                <svg className="absolute inset-0 w-full h-full">
+                  {points.length > 1 && (
+                    <polyline
+                      points={getPolygonPoints()}
+                      fill="none"
+                      stroke="#2E7D32"
+                      strokeWidth="2"
+                      strokeDasharray="8,4"
+                    />
+                  )}
+                  {points.length >= 3 && (
+                    <polygon
+                      points={getPolygonPoints()}
+                      fill="rgba(46, 125, 50, 0.25)"
+                      stroke="#2E7D32"
+                      strokeWidth="3"
+                    />
+                  )}
+                  {points.map((point, index) => (
+                    <g key={index}>
+                      <circle
+                        cx={point.x}
+                        cy={point.y}
+                        r="7"
+                        fill="#2E7D32"
+                        stroke="white"
+                        strokeWidth="2"
                       />
-                      <text x="250" y="250" textAnchor="middle" className="fill-primary-700 font-semibold text-sm">
-                        {selectedSurvey.measured_area} 亩
+                      <text
+                        x={point.x}
+                        y={point.y - 12}
+                        textAnchor="middle"
+                        className="fill-white text-xs font-bold"
+                        style={{ paintOrder: 'stroke', stroke: '#2E7D32', strokeWidth: 3 }}
+                      >
+                        {index + 1}
                       </text>
-                    </svg>
+                    </g>
+                  ))}
+                  {points.length >= 3 && (
+                    <text
+                      x={center.x}
+                      y={center.y}
+                      textAnchor="middle"
+                      className="fill-primary-700 font-bold text-sm"
+                      style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 4 }}
+                    >
+                      {drawnArea.toFixed(2)} 亩
+                    </text>
                   )}
-                  {isDrawing && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <PenTool className="w-12 h-12 text-primary-600 mx-auto mb-2 animate-pulse" />
-                        <p className="text-primary-700 font-medium">点击地图开始绘制边界</p>
-                        <p className="text-sm text-gray-500 mt-1">沿地块边缘依次点击，最后闭合多边形</p>
-                      </div>
+                </svg>
+
+                {!selectedSurvey && !isDrawing && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60">
+                    <div className="text-center">
+                      <Map className="w-16 h-16 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-600 font-medium">选择测绘任务或开始新的测绘</p>
+                      <p className="text-sm text-gray-400 mt-1">在左侧列表中选择一个待测绘任务</p>
                     </div>
-                  )}
-                  {!selectedSurvey && !isDrawing && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center">
-                        <Map className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-                        <p className="text-gray-500">选择测绘任务或开始新的测绘</p>
-                      </div>
+                  </div>
+                )}
+
+                {isDrawing && points.length === 0 && selectedSurvey && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-center bg-white/90 backdrop-blur rounded-2xl p-6 shadow-xl">
+                      <PenTool className="w-12 h-12 text-primary-600 mx-auto mb-3 animate-bounce" />
+                      <p className="text-primary-700 font-semibold text-lg">开始绘制边界</p>
+                      <p className="text-sm text-gray-600 mt-2">沿地块边缘依次点击添加顶点</p>
+                      <p className="text-sm text-gray-500">至少需要3个点形成闭合区域</p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="absolute top-4 left-4 bg-white/95 backdrop-blur rounded-xl p-3 shadow-lg">
@@ -225,7 +372,7 @@ export default function Surveying() {
                 <p className="text-xs text-gray-500 mt-1">北纬 36.88° 东经 118.72°</p>
               </div>
 
-              <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+              <div className="absolute top-4 right-4 flex flex-col gap-2">
                 <button className="w-10 h-10 bg-white rounded-lg shadow-lg flex items-center justify-center hover:bg-gray-50 transition-colors">
                   <span className="text-xl font-bold text-gray-600">+</span>
                 </button>
@@ -233,13 +380,22 @@ export default function Surveying() {
                   <span className="text-xl font-bold text-gray-600">−</span>
                 </button>
               </div>
+
+              {isDrawing && points.length > 0 && (
+                <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur rounded-xl p-3 shadow-lg">
+                  <p className="text-xs text-gray-500 mb-1">绘制提示</p>
+                  <p className="text-sm text-gray-700">已添加 <span className="font-bold text-primary-600">{points.length}</span> 个顶点</p>
+                  <p className="text-xs text-gray-500 mt-1">点击撤销可删除最后一个点</p>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleStartDrawing}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                  disabled={!selectedSurvey}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDrawing
                       ? 'bg-primary-600 text-white shadow-md'
                       : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
@@ -248,20 +404,41 @@ export default function Surveying() {
                   <PenTool className="w-5 h-5" />
                   {isDrawing ? '绘制中...' : '开始绘制'}
                 </button>
-                <button className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
-                  <Edit className="w-5 h-5" />
-                  编辑边界
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors">
+                {isDrawing && (
+                  <button
+                    onClick={handleUndo}
+                    disabled={points.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Undo2 className="w-5 h-5" />
+                    撤销
+                  </button>
+                )}
+                <button
+                  onClick={handleClear}
+                  disabled={points.length === 0 && !isDrawing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <Trash2 className="w-5 h-5" />
                   清除
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <button className="px-4 py-2 border border-gray-200 rounded-lg text-gray-600 font-medium hover:bg-gray-50 transition-colors">
+                <button
+                  onClick={() => {
+                    setIsDrawing(false);
+                    setPoints([]);
+                    setDrawnArea(0);
+                  }}
+                  className="px-4 py-2 border border-gray-200 rounded-lg text-gray-600 font-medium hover:bg-gray-50 transition-colors"
+                >
                   取消
                 </button>
-                <button className="btn-primary flex items-center gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={points.length < 3 || !selectedSurvey || selectedSurvey.status === 'completed'}
+                  className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <Save className="w-5 h-5" />
                   保存测绘结果
                 </button>
@@ -296,6 +473,10 @@ export default function Surveying() {
                   <p className="text-gray-700 mt-1">{selectedSurvey.terrain_notes}</p>
                 </div>
               )}
+              <div className="mt-4 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <span className="text-sm text-green-700 font-medium">边界坐标已保存，共 {points.length} 个顶点</span>
+              </div>
             </div>
           )}
         </div>

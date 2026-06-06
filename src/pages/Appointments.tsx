@@ -13,13 +13,13 @@ import {
   Eye,
   ChevronDown,
   Calculator,
-  User,
-  Phone,
 } from 'lucide-react';
-import { mockAppointments, mockFarmlands, serviceTypeLabels, statusLabels, statusColors } from '@/data/mockData';
+import { mockFarmlands, serviceTypeLabels, statusLabels, statusColors } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
 import type { Appointment, ServiceType } from '@/data/types';
 
 export default function Appointments() {
+  const { appointments, addAppointment, updateAppointmentStatus } = useAppStore();
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -33,7 +33,7 @@ export default function Appointments() {
     notes: '',
   });
 
-  const filteredAppointments = mockAppointments.filter((apt) => {
+  const filteredAppointments = appointments.filter((apt) => {
     const matchSearch =
       apt.farmland_name.includes(searchTerm) ||
       apt.farmer_name.includes(searchTerm);
@@ -58,6 +58,58 @@ export default function Appointments() {
     }
   };
 
+  const handleSubmit = () => {
+    if (!formData.farmland_id || !formData.expected_date) {
+      alert('请填写完整信息');
+      return;
+    }
+    const farmland = mockFarmlands.find((f) => f.id === formData.farmland_id);
+    if (!farmland) return;
+
+    const newAppointment: Appointment = {
+      id: `a${Date.now()}`,
+      farmland_id: formData.farmland_id,
+      farmland_name: farmland.name,
+      service_type: formData.service_type,
+      expected_date: formData.expected_date,
+      area_mu: formData.area_mu,
+      quoted_price: formData.quoted_price,
+      status: 'pending',
+      crop_type: farmland.crop_type,
+      farmer_name: farmland.owner,
+      farmer_phone: farmland.owner_phone,
+      created_at: new Date().toISOString().split('T')[0],
+      notes: formData.notes,
+    };
+
+    addAppointment(newAppointment);
+    setShowModal(false);
+    setFormData({
+      farmland_id: '',
+      service_type: 'pest_control',
+      expected_date: '',
+      area_mu: 0,
+      quoted_price: 12,
+      notes: '',
+    });
+    alert('预约提交成功！');
+  };
+
+  const handleApprove = (apt: Appointment) => {
+    updateAppointmentStatus(apt.id, 'approved');
+    alert('预约已确认！');
+  };
+
+  const handleCancel = (apt: Appointment) => {
+    updateAppointmentStatus(apt.id, 'cancelled');
+    alert('预约已取消');
+  };
+
+  const pendingCount = appointments.filter((a) => a.status === 'pending').length;
+  const approvedCount = appointments.filter((a) => a.status === 'approved' || a.status === 'scheduled').length;
+  const inProgressCount = appointments.filter((a) => a.status === 'in_progress').length;
+  const completedCount = appointments.filter((a) => a.status === 'completed').length;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -79,9 +131,7 @@ export default function Appointments() {
             </div>
             <div>
               <p className="text-sm text-gray-500">待审核</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {mockAppointments.filter((a) => a.status === 'pending').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-800">{pendingCount}</p>
             </div>
           </div>
         </div>
@@ -92,9 +142,7 @@ export default function Appointments() {
             </div>
             <div>
               <p className="text-sm text-gray-500">已确认</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {mockAppointments.filter((a) => a.status === 'approved' || a.status === 'scheduled').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-800">{approvedCount}</p>
             </div>
           </div>
         </div>
@@ -105,9 +153,7 @@ export default function Appointments() {
             </div>
             <div>
               <p className="text-sm text-gray-500">作业中</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {mockAppointments.filter((a) => a.status === 'in_progress').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-800">{inProgressCount}</p>
             </div>
           </div>
         </div>
@@ -118,9 +164,7 @@ export default function Appointments() {
             </div>
             <div>
               <p className="text-sm text-gray-500">已完成</p>
-              <p className="text-2xl font-bold text-gray-800">
-                {mockAppointments.filter((a) => a.status === 'completed').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-800">{completedCount}</p>
             </div>
           </div>
         </div>
@@ -172,7 +216,7 @@ export default function Appointments() {
                 <th className="table-header">面积</th>
                 <th className="table-header">农户</th>
                 <th className="table-header">期望日期</th>
-                <th className="table-header">报价</th>
+                <th className="table-header">总价</th>
                 <th className="table-header">状态</th>
                 <th className="table-header">操作</th>
               </tr>
@@ -234,10 +278,18 @@ export default function Appointments() {
                       </button>
                       {apt.status === 'pending' && (
                         <>
-                          <button className="p-1.5 hover:bg-green-50 rounded-lg transition-colors">
+                          <button
+                            onClick={() => handleApprove(apt)}
+                            className="p-1.5 hover:bg-green-50 rounded-lg transition-colors"
+                            title="确认"
+                          >
                             <Check className="w-4 h-4 text-green-600" />
                           </button>
-                          <button className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
+                          <button
+                            onClick={() => handleCancel(apt)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                            title="取消"
+                          >
                             <X className="w-4 h-4 text-red-600" />
                           </button>
                         </>
@@ -308,6 +360,7 @@ export default function Appointments() {
                     value={formData.expected_date}
                     onChange={(e) => setFormData({ ...formData, expected_date: e.target.value })}
                     className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
                   />
                 </div>
               </div>
@@ -378,7 +431,7 @@ export default function Appointments() {
               >
                 取消
               </button>
-              <button onClick={() => setShowModal(false)} className="btn-primary px-5 py-2.5">
+              <button onClick={handleSubmit} className="btn-primary px-5 py-2.5">
                 提交预约
               </button>
             </div>
@@ -395,7 +448,7 @@ export default function Appointments() {
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">预约单号</span>
-                <span className="font-medium">{selectedAppointment.id.toUpperCase()}</span>
+                <span className="font-mono font-medium">{selectedAppointment.id.toUpperCase()}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">地块名称</span>
@@ -436,6 +489,12 @@ export default function Appointments() {
                   <p className="text-gray-700">{selectedAppointment.notes}</p>
                 </div>
               )}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">当前状态</span>
+                <span className={`badge ${statusColors[selectedAppointment.status]}`}>
+                  {statusLabels[selectedAppointment.status]}
+                </span>
+              </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end">
               <button

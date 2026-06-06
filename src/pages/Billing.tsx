@@ -14,6 +14,9 @@ import {
   Calendar,
   TrendingUp,
   BarChart3,
+  Plus,
+  X,
+  Check,
 } from 'lucide-react';
 import {
   BarChart,
@@ -27,36 +30,168 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { mockBills, mockSeasonStats, statusLabels, statusColors } from '@/data/mockData';
-import type { Bill } from '@/data/types';
+import { mockSeasonStats, statusLabels, statusColors, mockAppointments, mockFarmlands } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
+import type { Bill, BillItem } from '@/data/types';
 
 const COLORS = ['#22c55e', '#eab308', '#ef4444', '#3b82f6'];
 
 export default function Billing() {
+  const { bills, addBill, updateBillPayment } = useAppStore();
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredBills = mockBills.filter(
-    (b) => statusFilter === 'all' || b.status === statusFilter
-  );
+  const [createForm, setCreateForm] = useState({
+    appointment_id: '',
+    farmland_id: '',
+    farmland_name: '',
+    farmer_name: '',
+    farmer_phone: '',
+    due_date: '',
+    items: [{ name: '病虫害防治', quantity: 0, unit_price: 12, subtotal: 0 }] as BillItem[],
+  });
 
-  const totalRevenue = mockBills.reduce((sum, b) => sum + b.total_amount, 0);
-  const totalPaid = mockBills.reduce((sum, b) => sum + b.paid_amount, 0);
+  const filteredBills = bills.filter((b) => {
+    const matchStatus = statusFilter === 'all' || b.status === statusFilter;
+    const matchSearch = !searchTerm ||
+      b.farmland_name.includes(searchTerm) ||
+      b.farmer_name.includes(searchTerm) ||
+      b.id.includes(searchTerm);
+    return matchStatus && matchSearch;
+  });
+
+  const totalRevenue = bills.reduce((sum, b) => sum + b.total_amount, 0);
+  const totalPaid = bills.reduce((sum, b) => sum + b.paid_amount, 0);
   const totalUnpaid = totalRevenue - totalPaid;
-  const overdueBills = mockBills.filter((b) => b.status === 'overdue');
+  const overdueBills = bills.filter((b) => b.status === 'overdue');
 
   const paymentStats = [
-    { name: '已支付', value: mockBills.filter((b) => b.status === 'paid').length, color: '#22c55e' },
-    { name: '部分支付', value: mockBills.filter((b) => b.status === 'partial').length, color: '#eab308' },
-    { name: '待支付', value: mockBills.filter((b) => b.status === 'unpaid').length, color: '#3b82f6' },
-    { name: '已逾期', value: mockBills.filter((b) => b.status === 'overdue').length, color: '#ef4444' },
+    { name: '已支付', value: bills.filter((b) => b.status === 'paid').length, color: '#22c55e' },
+    { name: '部分支付', value: bills.filter((b) => b.status === 'partial').length, color: '#eab308' },
+    { name: '待支付', value: bills.filter((b) => b.status === 'unpaid').length, color: '#3b82f6' },
+    { name: '已逾期', value: bills.filter((b) => b.status === 'overdue').length, color: '#ef4444' },
   ];
+
+  const calculateTotal = (items: BillItem[]) => {
+    return items.reduce((sum, item) => sum + item.subtotal, 0);
+  };
+
+  const handleSelectAppointment = (appointmentId: string) => {
+    const apt = mockAppointments.find((a) => a.id === appointmentId);
+    if (apt) {
+      const total = apt.area_mu * apt.quoted_price;
+      setCreateForm({
+        ...createForm,
+        appointment_id: apt.id,
+        farmland_id: apt.farmland_id,
+        farmland_name: apt.farmland_name,
+        farmer_name: apt.farmer_name,
+        farmer_phone: apt.farmer_phone,
+        items: [{
+          name: '病虫害防治',
+          quantity: apt.area_mu,
+          unit_price: apt.quoted_price,
+          subtotal: total,
+        }],
+      });
+    }
+  };
+
+  const handleUpdateItem = (index: number, field: keyof BillItem, value: number) => {
+    const newItems = [...createForm.items];
+    newItems[index] = { ...newItems[index], [field]: value };
+    newItems[index].subtotal = newItems[index].quantity * newItems[index].unit_price;
+    setCreateForm({ ...createForm, items: newItems });
+  };
+
+  const handleAddItem = () => {
+    setCreateForm({
+      ...createForm,
+      items: [...createForm.items, { name: '其他费用', quantity: 0, unit_price: 0, subtotal: 0 }],
+    });
+  };
+
+  const handleRemoveItem = (index: number) => {
+    if (createForm.items.length > 1) {
+      const newItems = createForm.items.filter((_, i) => i !== index);
+      setCreateForm({ ...createForm, items: newItems });
+    }
+  };
+
+  const handleCreateBill = () => {
+    if (!createForm.farmland_name || !createForm.due_date) {
+      alert('请填写完整信息');
+      return;
+    }
+    const totalAmount = calculateTotal(createForm.items);
+    const newBill: Bill = {
+      id: `b${Date.now()}`,
+      appointment_id: createForm.appointment_id,
+      farmland_id: createForm.farmland_id,
+      farmland_name: createForm.farmland_name,
+      farmer_name: createForm.farmer_name,
+      farmer_phone: createForm.farmer_phone || '13800138000',
+      items: createForm.items,
+      total_amount: totalAmount,
+      paid_amount: 0,
+      status: 'unpaid',
+      created_at: new Date().toISOString().split('T')[0],
+      due_date: createForm.due_date,
+    };
+
+    addBill(newBill);
+    setShowCreateModal(false);
+    setCreateForm({
+      appointment_id: '',
+      farmland_id: '',
+      farmland_name: '',
+      farmer_name: '',
+      farmer_phone: '',
+      due_date: '',
+      items: [{ name: '病虫害防治', quantity: 0, unit_price: 12, subtotal: 0 }],
+    });
+    alert('账单生成成功！');
+  };
+
+  const handleConfirmPayment = () => {
+    if (!selectedBill || !paymentAmount) return;
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('请输入有效的收款金额');
+      return;
+    }
+    const newPaid = selectedBill.paid_amount + amount;
+    const remaining = selectedBill.total_amount - newPaid;
+    let newStatus: Bill['status'] = selectedBill.status;
+    if (remaining <= 0) {
+      newStatus = 'paid';
+    } else if (newPaid > 0) {
+      newStatus = 'partial';
+    }
+
+    updateBillPayment(selectedBill.id, newPaid, newStatus);
+    setShowPaymentModal(false);
+    setPaymentAmount('');
+    setSelectedBill(null);
+    setShowDetailModal(false);
+    alert('收款确认成功！');
+  };
 
   const handleViewDetail = (bill: Bill) => {
     setSelectedBill(bill);
     setShowDetailModal(true);
+  };
+
+  const handleOpenPayment = (bill: Bill) => {
+    setSelectedBill(bill);
+    const remaining = bill.total_amount - bill.paid_amount;
+    setPaymentAmount(remaining.toFixed(2));
+    setShowPaymentModal(true);
   };
 
   return (
@@ -71,8 +206,8 @@ export default function Billing() {
             <FileText className="w-5 h-5" />
             导出报表
           </button>
-          <button className="btn-primary flex items-center gap-2">
-            <Receipt className="w-5 h-5" />
+          <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-5 h-5" />
             生成账单
           </button>
         </div>
@@ -168,6 +303,8 @@ export default function Billing() {
                   <input
                     type="text"
                     placeholder="搜索账单..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                     className="input-field pl-9 w-48 text-sm"
                   />
                 </div>
@@ -247,18 +384,17 @@ export default function Billing() {
                           <button
                             onClick={() => handleViewDetail(bill)}
                             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="查看详情"
                           >
                             <Eye className="w-4 h-4 text-gray-600" />
                           </button>
-                          {(bill.status === 'unpaid' || bill.status === 'partial' || bill.status === 'overdue') && (
+                          {bill.status !== 'paid' && (
                             <button
-                              onClick={() => {
-                                setSelectedBill(bill);
-                                setShowReminderModal(true);
-                              }}
-                              className="p-1.5 hover:bg-yellow-50 rounded-lg transition-colors"
+                              onClick={() => handleOpenPayment(bill)}
+                              className="p-1.5 hover:bg-green-50 rounded-lg transition-colors"
+                              title="确认收款"
                             >
-                              <Send className="w-4 h-4 text-yellow-600" />
+                              <DollarSign className="w-4 h-4 text-green-600" />
                             </button>
                           )}
                         </div>
@@ -367,6 +503,153 @@ export default function Billing() {
         </div>
       </div>
 
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-800">生成账单</h3>
+              <p className="text-gray-500 text-sm mt-1">选择作业预约或手动填写账单信息</p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">关联预约（可选）</label>
+                <select
+                  value={createForm.appointment_id}
+                  onChange={(e) => handleSelectAppointment(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="">手动填写</option>
+                  {mockAppointments.filter((a) => a.status !== 'pending').slice(0, 10).map((apt) => (
+                    <option key={apt.id} value={apt.id}>
+                      {apt.farmland_name} - {apt.area_mu}亩 - ¥{(apt.area_mu * apt.quoted_price).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">地块名称</label>
+                  <input
+                    type="text"
+                    value={createForm.farmland_name}
+                    onChange={(e) => setCreateForm({ ...createForm, farmland_name: e.target.value })}
+                    placeholder="请输入地块名称"
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">农户姓名</label>
+                  <input
+                    type="text"
+                    value={createForm.farmer_name}
+                    onChange={(e) => setCreateForm({ ...createForm, farmer_name: e.target.value })}
+                    placeholder="请输入农户姓名"
+                    className="input-field"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">到期日期</label>
+                <input
+                  type="date"
+                  value={createForm.due_date}
+                  onChange={(e) => setCreateForm({ ...createForm, due_date: e.target.value })}
+                  className="input-field"
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-gray-700">费用明细</label>
+                  <button
+                    onClick={handleAddItem}
+                    className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                  >
+                    + 添加明细
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {createForm.items.map((item, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-4">
+                        <label className="block text-xs text-gray-500 mb-1">项目名称</label>
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => {
+                            const newItems = [...createForm.items];
+                            newItems[index].name = e.target.value;
+                            setCreateForm({ ...createForm, items: newItems });
+                          }}
+                          className="input-field text-sm py-2"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-gray-500 mb-1">数量</label>
+                        <input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => handleUpdateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                          className="input-field text-sm py-2"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-gray-500 mb-1">单价</label>
+                        <input
+                          type="number"
+                          value={item.unit_price}
+                          onChange={(e) => handleUpdateItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                          className="input-field text-sm py-2"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <label className="block text-xs text-gray-500 mb-1">小计</label>
+                        <div className="py-2 px-3 bg-gray-50 rounded-lg text-sm font-medium text-gray-700">
+                          ¥{item.subtotal.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="col-span-1">
+                        {createForm.items.length > 1 && (
+                          <button
+                            onClick={() => handleRemoveItem(index)}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-primary-50 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-gray-700">账单总计</span>
+                  <span className="text-2xl font-bold text-primary-600">
+                    ¥{calculateTotal(createForm.items).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button onClick={handleCreateBill} className="btn-primary px-5 py-2.5">
+                生成账单
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDetailModal && selectedBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
@@ -444,58 +727,78 @@ export default function Billing() {
                 关闭
               </button>
               {selectedBill.status !== 'paid' && (
-                <button className="btn-primary px-5 py-2.5">确认收款</button>
+                <button
+                  onClick={() => {
+                    const remaining = selectedBill.total_amount - selectedBill.paid_amount;
+                    setPaymentAmount(remaining.toFixed(2));
+                    setShowPaymentModal(true);
+                  }}
+                  className="btn-primary px-5 py-2.5"
+                >
+                  确认收款
+                </button>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {showReminderModal && selectedBill && (
+      {showPaymentModal && selectedBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
             <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold text-gray-800">发送催款提醒</h3>
+              <h3 className="text-xl font-bold text-gray-800">确认收款</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                账单：{selectedBill.id.toUpperCase()}
+              </p>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="bg-yellow-50 rounded-xl p-4">
-                <p className="font-medium text-yellow-800">{selectedBill.farmer_name}</p>
-                <p className="text-sm text-yellow-700 mt-1">
-                  待支付金额: ¥{(selectedBill.total_amount - selectedBill.paid_amount).toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">提醒方式</label>
-                <div className="flex gap-3">
-                  <button className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                    📱 短信
-                  </button>
-                  <button className="flex-1 py-3 border border-primary-500 bg-primary-50 rounded-xl font-medium text-primary-700">
-                    💬 微信
-                  </button>
+            <div className="p-6 space-y-5">
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">账单总金额</span>
+                  <span className="font-bold text-gray-800">¥{selectedBill.total_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">已支付金额</span>
+                  <span className="font-medium text-green-600">¥{selectedBill.paid_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-gray-200">
+                  <span className="text-gray-500">待支付金额</span>
+                  <span className="font-bold text-orange-600">
+                    ¥{(selectedBill.total_amount - selectedBill.paid_amount).toFixed(2)}
+                  </span>
                 </div>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">提醒内容</label>
-                <textarea
-                  rows={3}
-                  defaultValue={`尊敬的${selectedBill.farmer_name}，您的植保服务账单（${selectedBill.id.toUpperCase()}）已到期，应付金额¥${(selectedBill.total_amount - selectedBill.paid_amount).toFixed(2)}，请及时支付。如有疑问请联系我们。`}
-                  className="input-field resize-none"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  本次收款金额（元）
+                </label>
+                <div className="relative">
+                  <DollarSign className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    placeholder="请输入收款金额"
+                    className="input-field pl-10 text-lg"
+                    step="0.01"
+                  />
+                </div>
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setShowReminderModal(false)}
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPaymentAmount('');
+                }}
                 className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 取消
               </button>
-              <button
-                onClick={() => setShowReminderModal(false)}
-                className="btn-primary px-5 py-2.5"
-              >
-                发送提醒
+              <button onClick={handleConfirmPayment} className="btn-primary px-5 py-2.5">
+                确认收款
               </button>
             </div>
           </div>

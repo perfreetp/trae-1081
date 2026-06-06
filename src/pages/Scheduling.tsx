@@ -15,13 +15,36 @@ import {
   AlertCircle,
   MapPin,
 } from 'lucide-react';
-import { mockSchedules, mockDrones, mockPilots, mockWeather, suitabilityLabels, suitabilityColors, statusLabels, statusColors } from '@/data/mockData';
+import {
+  mockDrones,
+  mockPilots,
+  mockWeather,
+  mockAppointments,
+  suitabilityLabels,
+  suitabilityColors,
+  statusLabels,
+  statusColors,
+} from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
 import type { Schedule } from '@/data/types';
 
 export default function Scheduling() {
+  const { schedules, addSchedule } = useAppStore();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    appointment_id: '',
+    farmland_name: '',
+    operation_date: new Date().toISOString().split('T')[0],
+    start_time: '08:00',
+    end_time: '12:00',
+    drone_id: '',
+    drone_name: '',
+    pilot_id: '',
+    pilot_name: '',
+    notes: '',
+  });
 
   const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
@@ -56,7 +79,7 @@ export default function Scheduling() {
 
   const getSchedulesForDate = (date: Date) => {
     const dateStr = date.toISOString().split('T')[0];
-    return mockSchedules.filter((s) => s.operation_date === dateStr);
+    return schedules.filter((s) => s.operation_date === dateStr);
   };
 
   const getWeatherForDate = (date: Date) => {
@@ -66,6 +89,83 @@ export default function Scheduling() {
 
   const availableDrones = mockDrones.filter((d) => d.status === 'available');
   const availablePilots = mockPilots.filter((p) => p.status === 'available' || p.status === 'on_duty');
+
+  const handleSelectAppointment = (appointmentId: string) => {
+    const apt = mockAppointments.find((a) => a.id === appointmentId);
+    if (apt) {
+      setFormData({
+        ...formData,
+        appointment_id: apt.id,
+        farmland_name: apt.farmland_name,
+      });
+    }
+  };
+
+  const handleSelectDrone = (droneId: string) => {
+    const drone = mockDrones.find((d) => d.id === droneId);
+    if (drone) {
+      setFormData({
+        ...formData,
+        drone_id: drone.id,
+        drone_name: drone.name,
+      });
+    }
+  };
+
+  const handleSelectPilot = (pilotId: string) => {
+    const pilot = mockPilots.find((p) => p.id === pilotId);
+    if (pilot) {
+      setFormData({
+        ...formData,
+        pilot_id: pilot.id,
+        pilot_name: pilot.name,
+      });
+    }
+  };
+
+  const handleSubmitSchedule = () => {
+    if (!formData.farmland_name || !formData.drone_id || !formData.pilot_id) {
+      alert('请填写完整信息');
+      return;
+    }
+
+    const weather = getWeatherForDate(new Date(formData.operation_date));
+    const newSchedule: Schedule = {
+      id: `s${Date.now()}`,
+      appointment_id: formData.appointment_id,
+      farmland_name: formData.farmland_name,
+      operation_date: formData.operation_date,
+      start_time: formData.start_time,
+      end_time: formData.end_time,
+      drone_id: formData.drone_id,
+      drone_name: formData.drone_name,
+      pilot_id: formData.pilot_id,
+      pilot_name: formData.pilot_name,
+      status: 'scheduled',
+      weather_condition: weather?.condition || '晴',
+      weather_suitability: weather?.suitability || 'good',
+      notes: formData.notes,
+    };
+
+    addSchedule(newSchedule);
+    setShowAddModal(false);
+    setFormData({
+      appointment_id: '',
+      farmland_name: '',
+      operation_date: new Date().toISOString().split('T')[0],
+      start_time: '08:00',
+      end_time: '12:00',
+      drone_id: '',
+      drone_name: '',
+      pilot_id: '',
+      pilot_name: '',
+      notes: '',
+    });
+    setSelectedDate(new Date(formData.operation_date));
+    alert('排班创建成功！');
+  };
+
+  const weekScheduleCount = weekDates.reduce((sum, date) => sum + getSchedulesForDate(date).length, 0);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -121,7 +221,7 @@ export default function Scheduling() {
             </div>
             <div>
               <p className="text-sm text-gray-500">本周排期</p>
-              <p className="text-2xl font-bold text-gray-800">{mockSchedules.length}</p>
+              <p className="text-2xl font-bold text-gray-800">{weekScheduleCount}</p>
             </div>
           </div>
         </div>
@@ -194,7 +294,7 @@ export default function Scheduling() {
 
         <div className="grid grid-cols-7 min-h-[400px]">
           {weekDates.map((date, index) => {
-            const schedules = getSchedulesForDate(date);
+            const daySchedules = getSchedulesForDate(date);
             const isToday = date.toDateString() === new Date().toDateString();
 
             return (
@@ -205,7 +305,7 @@ export default function Scheduling() {
                 }`}
               >
                 <div className="space-y-2">
-                  {schedules.map((schedule) => (
+                  {daySchedules.map((schedule) => (
                     <div
                       key={schedule.id}
                       onClick={() => setSelectedSchedule(schedule)}
@@ -214,6 +314,8 @@ export default function Scheduling() {
                           ? 'bg-green-100 border-2 border-green-300'
                           : schedule.status === 'scheduled'
                           ? 'bg-blue-50 border-2 border-blue-200 hover:bg-blue-100'
+                          : schedule.status === 'completed'
+                          ? 'bg-gray-100 border-2 border-gray-200'
                           : 'bg-gray-100 border-2 border-gray-200'
                       }`}
                     >
@@ -229,8 +331,26 @@ export default function Scheduling() {
                       <p className="text-xs text-gray-500 truncate">
                         👤 {schedule.pilot_name}
                       </p>
+                      <p className={`text-xs mt-1 ${suitabilityColors[schedule.weather_suitability].replace('bg-', 'text-').replace('text-white', 'text-gray-600')}`}>
+                        {suitabilityLabels[schedule.weather_suitability]}
+                      </p>
                     </div>
                   ))}
+                  {daySchedules.length === 0 && (
+                    <div
+                      onClick={() => {
+                        setFormData({
+                          ...formData,
+                          operation_date: date.toISOString().split('T')[0],
+                        });
+                        setShowAddModal(true);
+                      }}
+                      className="p-3 rounded-xl border-2 border-dashed border-gray-200 text-center cursor-pointer hover:border-primary-300 hover:bg-primary-50 transition-all"
+                    >
+                      <Plus className="w-4 h-4 text-gray-400 mx-auto mb-1" />
+                      <p className="text-xs text-gray-400">添加排班</p>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -384,6 +504,12 @@ export default function Scheduling() {
                   作业适宜度: {suitabilityLabels[selectedSchedule.weather_suitability]}
                 </p>
               </div>
+              {selectedSchedule.notes && (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-500">备注</p>
+                  <p className="text-gray-700 mt-1">{selectedSchedule.notes}</p>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
@@ -404,27 +530,76 @@ export default function Scheduling() {
             <div className="p-6 border-b border-gray-100">
               <h3 className="text-xl font-bold text-gray-800">新增排班</h3>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">选择作业</label>
-                <select className="input-field">
-                  <option>请选择作业预约</option>
+                <label className="block text-sm font-medium text-gray-700 mb-2">选择作业（可选）</label>
+                <select
+                  value={formData.appointment_id}
+                  onChange={(e) => handleSelectAppointment(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="">手动填写</option>
+                  {mockAppointments.filter((a) => a.status === 'approved').slice(0, 10).map((apt) => (
+                    <option key={apt.id} value={apt.id}>
+                      {apt.farmland_name} - {apt.area_mu}亩
+                    </option>
+                  ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">地块名称</label>
+                <input
+                  type="text"
+                  value={formData.farmland_name}
+                  onChange={(e) => setFormData({ ...formData, farmland_name: e.target.value })}
+                  placeholder="请输入地块名称"
+                  className="input-field"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">作业日期</label>
-                  <input type="date" className="input-field" />
+                  <input
+                    type="date"
+                    value={formData.operation_date}
+                    onChange={(e) => setFormData({ ...formData, operation_date: e.target.value })}
+                    className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">开始时间</label>
-                  <input type="time" className="input-field" />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">开始时间</label>
+                    <input
+                      type="time"
+                      value={formData.start_time}
+                      onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                      className="input-field"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">结束时间</label>
+                    <input
+                      type="time"
+                      value={formData.end_time}
+                      onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                      className="input-field"
+                    />
+                  </div>
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">指派无人机</label>
-                  <select className="input-field">
+                  <select
+                    value={formData.drone_id}
+                    onChange={(e) => handleSelectDrone(e.target.value)}
+                    className="input-field"
+                  >
+                    <option value="">请选择无人机</option>
                     {availableDrones.map((d) => (
                       <option key={d.id} value={d.id}>{d.name} ({d.model})</option>
                     ))}
@@ -432,16 +607,45 @@ export default function Scheduling() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">指派飞手</label>
-                  <select className="input-field">
+                  <select
+                    value={formData.pilot_id}
+                    onChange={(e) => handleSelectPilot(e.target.value)}
+                    className="input-field"
+                  >
+                    <option value="">请选择飞手</option>
                     {availablePilots.map((p) => (
                       <option key={p.id} value={p.id}>{p.name} (⭐{p.rating})</option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              {formData.operation_date && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-sm text-blue-700 font-medium flex items-center gap-2">
+                    <CloudSun className="w-4 h-4" />
+                    当日天气
+                  </p>
+                  <p className="text-gray-700 mt-1">
+                    {getWeatherForDate(new Date(formData.operation_date))?.condition || '晴'}
+                  </p>
+                  <p className={`mt-2 inline-block px-2 py-1 rounded-lg text-xs font-medium ${
+                    suitabilityColors[getWeatherForDate(new Date(formData.operation_date))?.suitability || 'good']
+                  }`}>
+                    作业适宜度: {suitabilityLabels[getWeatherForDate(new Date(formData.operation_date))?.suitability || 'good']}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">备注</label>
-                <textarea rows={2} placeholder="填写作业注意事项..." className="input-field resize-none" />
+                <textarea
+                  rows={2}
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="填写作业注意事项..."
+                  className="input-field resize-none"
+                />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
@@ -451,7 +655,7 @@ export default function Scheduling() {
               >
                 取消
               </button>
-              <button onClick={() => setShowAddModal(false)} className="btn-primary px-5 py-2.5">
+              <button onClick={handleSubmitSchedule} className="btn-primary px-5 py-2.5">
                 确认排期
               </button>
             </div>
