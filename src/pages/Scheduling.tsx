@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   PlaneTakeoff,
   Calendar,
@@ -14,6 +14,8 @@ import {
   CheckCircle,
   AlertCircle,
   MapPin,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import {
   mockDrones,
@@ -28,11 +30,20 @@ import {
 import { useAppStore } from '@/store/useAppStore';
 import type { Schedule } from '@/data/types';
 
+interface ConflictInfo {
+  hasConflict: boolean;
+  droneConflict?: string;
+  pilotConflict?: string;
+  weatherWarning?: boolean;
+}
+
 export default function Scheduling() {
   const { schedules, addSchedule } = useAppStore();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<ConflictInfo>({ hasConflict: false });
   const [formData, setFormData] = useState({
     appointment_id: '',
     farmland_name: '',
@@ -79,7 +90,7 @@ export default function Scheduling() {
 
   const getSchedulesForDate = (date: Date) => {
     const dateStr = date.toISOString().split('T')[0];
-    return schedules.filter((s) => s.operation_date === dateStr);
+    return schedules.filter((s) => s.operation_date === dateStr && s.status !== 'cancelled');
   };
 
   const getWeatherForDate = (date: Date) => {
@@ -89,6 +100,59 @@ export default function Scheduling() {
 
   const availableDrones = mockDrones.filter((d) => d.status === 'available');
   const availablePilots = mockPilots.filter((p) => p.status === 'available' || p.status === 'on_duty');
+
+  const timeToMinutes = (time: string): number => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const checkConflicts = useMemo((): ConflictInfo => {
+    const info: ConflictInfo = { hasConflict: false };
+    
+    if (!formData.operation_date || !formData.start_time || !formData.end_time) {
+      return info;
+    }
+
+    const daySchedules = schedules.filter(
+      (s) => s.operation_date === formData.operation_date && s.status !== 'cancelled'
+    );
+
+    const newStart = timeToMinutes(formData.start_time);
+    const newEnd = timeToMinutes(formData.end_time);
+
+    if (formData.drone_id) {
+      const droneSchedules = daySchedules.filter((s) => s.drone_id === formData.drone_id);
+      for (const s of droneSchedules) {
+        const sStart = timeToMinutes(s.start_time || '00:00');
+        const sEnd = timeToMinutes(s.end_time || '23:59');
+        if (newStart < sEnd && newEnd > sStart) {
+          info.hasConflict = true;
+          info.droneConflict = `无人机 ${s.drone_name} 在 ${s.start_time}-${s.end_time} 已有排期：${s.farmland_name}`;
+          break;
+        }
+      }
+    }
+
+    if (formData.pilot_id) {
+      const pilotSchedules = daySchedules.filter((s) => s.pilot_id === formData.pilot_id);
+      for (const s of pilotSchedules) {
+        const sStart = timeToMinutes(s.start_time || '00:00');
+        const sEnd = timeToMinutes(s.end_time || '23:59');
+        if (newStart < sEnd && newEnd > sStart) {
+          info.hasConflict = true;
+          info.pilotConflict = `飞手 ${s.pilot_name} 在 ${s.start_time}-${s.end_time} 已有排期：${s.farmland_name}`;
+          break;
+        }
+      }
+    }
+
+    const weather = getWeatherForDate(new Date(formData.operation_date));
+    if (weather && (weather.suitability === 'fair' || weather.suitability === 'poor')) {
+      info.weatherWarning = true;
+    }
+
+    return info;
+  }, [formData.operation_date, formData.start_time, formData.end_time, formData.drone_id, formData.pilot_id, schedules]);
 
   const handleSelectAppointment = (appointmentId: string) => {
     const apt = mockAppointments.find((a) => a.id === appointmentId);
@@ -129,6 +193,26 @@ export default function Scheduling() {
       return;
     }
 
+    if (timeToMinutes(formData.start_time) >= timeToMinutes(formData.end_time)) {
+      alert('结束时间必须晚于开始时间');
+      return;
+    }
+
+    setConflictInfo(checkConflicts);
+
+    if (checkConflicts.hasConflict) {
+      return;
+    }
+
+    if (checkConflicts.weatherWarning) {
+      setShowConfirmDialog(true);
+      return;
+    }
+
+    submitSchedule();
+  };
+
+  const submitSchedule = () => {
     const weather = getWeatherForDate(new Date(formData.operation_date));
     const newSchedule: Schedule = {
       id: `s${Date.now()}`,
@@ -149,6 +233,7 @@ export default function Scheduling() {
 
     addSchedule(newSchedule);
     setShowAddModal(false);
+    setShowConfirmDialog(false);
     setFormData({
       appointment_id: '',
       farmland_name: '',
@@ -162,10 +247,13 @@ export default function Scheduling() {
       notes: '',
     });
     setSelectedDate(new Date(formData.operation_date));
+    setConflictInfo({ hasConflict: false });
     alert('排班创建成功！');
   };
 
   const weekScheduleCount = weekDates.reduce((sum, date) => sum + getSchedulesForDate(date).length, 0);
+
+  const weather = getWeatherForDate(new Date(formData.operation_date));
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -527,10 +615,53 @@ export default function Scheduling() {
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
-            <div className="p-6 border-b border-gray-100">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-xl font-bold text-gray-800">新增排班</h3>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  setConflictInfo({ hasConflict: false });
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
             </div>
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+              {(checkConflicts.hasConflict || checkConflicts.weatherWarning) && (
+                <div className={`rounded-xl p-4 ${
+                  checkConflicts.hasConflict ? 'bg-red-50' : 'bg-orange-50'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    {checkConflicts.hasConflict ? (
+                      <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-2">
+                      {checkConflicts.hasConflict ? (
+                        <>
+                          <p className="font-medium text-red-800">排班冲突</p>
+                          {checkConflicts.droneConflict && (
+                            <p className="text-sm text-red-700">⚠️ {checkConflicts.droneConflict}</p>
+                          )}
+                          {checkConflicts.pilotConflict && (
+                            <p className="text-sm text-red-700">⚠️ {checkConflicts.pilotConflict}</p>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-medium text-orange-800">天气风险提示</p>
+                          <p className="text-sm text-orange-700">
+                            ⚠️ 当日天气条件{weather?.suitability === 'poor' ? '不适宜' : '一般'}，建议确认是否继续排期
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择作业（可选）</label>
                 <select
@@ -539,7 +670,7 @@ export default function Scheduling() {
                   className="input-field"
                 >
                   <option value="">手动填写</option>
-                  {mockAppointments.filter((a) => a.status === 'approved').slice(0, 10).map((apt) => (
+                  {mockAppointments.filter((a) => a.status === 'approved' || a.status === 'scheduled').slice(0, 10).map((apt) => (
                     <option key={apt.id} value={apt.id}>
                       {apt.farmland_name} - {apt.area_mu}亩
                     </option>
@@ -597,7 +728,9 @@ export default function Scheduling() {
                   <select
                     value={formData.drone_id}
                     onChange={(e) => handleSelectDrone(e.target.value)}
-                    className="input-field"
+                    className={`input-field ${
+                      checkConflicts.droneConflict ? 'border-red-400 focus:ring-red-500' : ''
+                    }`}
                   >
                     <option value="">请选择无人机</option>
                     {availableDrones.map((d) => (
@@ -610,7 +743,9 @@ export default function Scheduling() {
                   <select
                     value={formData.pilot_id}
                     onChange={(e) => handleSelectPilot(e.target.value)}
-                    className="input-field"
+                    className={`input-field ${
+                      checkConflicts.pilotConflict ? 'border-red-400 focus:ring-red-500' : ''
+                    }`}
                   >
                     <option value="">请选择飞手</option>
                     {availablePilots.map((p) => (
@@ -620,19 +755,25 @@ export default function Scheduling() {
                 </div>
               </div>
 
-              {formData.operation_date && (
-                <div className="bg-blue-50 rounded-xl p-4">
-                  <p className="text-sm text-blue-700 font-medium flex items-center gap-2">
+              {formData.operation_date && weather && (
+                <div className={`rounded-xl p-4 ${
+                  weather.suitability === 'poor' || weather.suitability === 'fair'
+                    ? 'bg-orange-50'
+                    : 'bg-blue-50'
+                }`}>
+                  <p className={`text-sm font-medium flex items-center gap-2 ${
+                    weather.suitability === 'poor' || weather.suitability === 'fair'
+                      ? 'text-orange-700'
+                      : 'text-blue-700'
+                  }`}>
                     <CloudSun className="w-4 h-4" />
                     当日天气
                   </p>
-                  <p className="text-gray-700 mt-1">
-                    {getWeatherForDate(new Date(formData.operation_date))?.condition || '晴'}
-                  </p>
+                  <p className="text-gray-700 mt-1">{weather.condition}</p>
                   <p className={`mt-2 inline-block px-2 py-1 rounded-lg text-xs font-medium ${
-                    suitabilityColors[getWeatherForDate(new Date(formData.operation_date))?.suitability || 'good']
+                    suitabilityColors[weather.suitability]
                   }`}>
-                    作业适宜度: {suitabilityLabels[getWeatherForDate(new Date(formData.operation_date))?.suitability || 'good']}
+                    作业适宜度: {suitabilityLabels[weather.suitability]}
                   </p>
                 </div>
               )}
@@ -650,12 +791,59 @@ export default function Scheduling() {
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  setConflictInfo({ hasConflict: false });
+                }}
                 className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
                 取消
               </button>
-              <button onClick={handleSubmitSchedule} className="btn-primary px-5 py-2.5">
+              <button
+                onClick={handleSubmitSchedule}
+                disabled={checkConflicts.hasConflict}
+                className="btn-primary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {checkConflicts.hasConflict ? '存在冲突' : '确认排期'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showConfirmDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800">天气风险确认</h3>
+            </div>
+            <div className="p-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-800">当日天气条件一般</p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    {weather?.suitability === 'poor'
+                      ? '当日天气不适宜植保作业，可能影响作业效果和飞行安全。'
+                      : '当日天气条件一般，建议确认现场实际天气后再作业。'}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    是否确认继续排期？
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmDialog(false)}
+                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={submitSchedule}
+                className="btn-primary px-5 py-2.5"
+              >
                 确认排期
               </button>
             </div>

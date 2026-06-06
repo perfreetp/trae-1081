@@ -115,12 +115,12 @@ export const mockOperations: Operation[] = [
 ];
 
 export const mockOperationPhotos: OperationPhoto[] = [
-  { id: 'ph1', operation_id: 'op2', url: '', type: 'before', upload_time: '2026-06-09 07:55', description: '作业前地块全景' },
-  { id: 'ph2', operation_id: 'op2', url: '', type: 'during', upload_time: '2026-06-09 09:15', description: '无人机作业中' },
-  { id: 'ph3', operation_id: 'op2', url: '', type: 'after', upload_time: '2026-06-09 10:30', description: '作业完成后效果' },
-  { id: 'ph4', operation_id: 'op2', url: '', type: 'after', upload_time: '2026-06-09 10:35', description: '作物细节' },
-  { id: 'ph5', operation_id: 'op1', url: '', type: 'before', upload_time: '2026-06-06 07:50', description: '玉米苗期' },
-  { id: 'ph6', operation_id: 'op1', url: '', type: 'during', upload_time: '2026-06-06 09:00', description: '施肥作业中' },
+  { id: 'ph1', operation_id: 'op2', url: '', type: 'before', media_type: 'image', upload_time: '2026-06-09 07:55', description: '作业前地块全景' },
+  { id: 'ph2', operation_id: 'op2', url: '', type: 'during', media_type: 'image', upload_time: '2026-06-09 09:15', description: '无人机作业中' },
+  { id: 'ph3', operation_id: 'op2', url: '', type: 'after', media_type: 'image', upload_time: '2026-06-09 10:30', description: '作业完成后效果' },
+  { id: 'ph4', operation_id: 'op2', url: '', type: 'after', media_type: 'image', upload_time: '2026-06-09 10:35', description: '作物细节' },
+  { id: 'ph5', operation_id: 'op1', url: '', type: 'before', media_type: 'image', upload_time: '2026-06-06 07:50', description: '玉米苗期' },
+  { id: 'ph6', operation_id: 'op1', url: '', type: 'during', media_type: 'image', upload_time: '2026-06-06 09:00', description: '施肥作业中' },
 ];
 
 export const mockBills: Bill[] = [

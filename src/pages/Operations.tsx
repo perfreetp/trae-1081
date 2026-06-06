@@ -15,10 +15,18 @@ import {
   ChevronDown,
   Search,
   X,
+  Play,
 } from 'lucide-react';
 import { mockOperations } from '@/data/mockData';
 import { useAppStore } from '@/store/useAppStore';
-import type { Operation, OperationPhoto, PhotoType } from '@/data/types';
+import type { Operation, OperationPhoto, PhotoType, MediaType } from '@/data/types';
+
+interface SelectedFile {
+  url: string;
+  name: string;
+  media_type: MediaType;
+  file: File;
+}
 
 export default function Operations() {
   const { operations, operationPhotos, addOperationPhoto } = useAppStore();
@@ -29,7 +37,8 @@ export default function Operations() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadType, setUploadType] = useState<PhotoType>('before');
   const [uploadDescription, setUploadDescription] = useState('');
-  const [selectedFiles, setSelectedFiles] = useState<{ url: string; name: string }[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [previewMedia, setPreviewMedia] = useState<{ url: string; media_type: MediaType } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredOperations = operations.filter(
@@ -45,10 +54,15 @@ export default function Operations() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      const newFiles = Array.from(files).map((file) => ({
-        url: URL.createObjectURL(file),
-        name: file.name,
-      }));
+      const newFiles: SelectedFile[] = Array.from(files).map((file) => {
+        const isVideo = file.type.startsWith('video/');
+        return {
+          url: URL.createObjectURL(file),
+          name: file.name,
+          media_type: isVideo ? 'video' : 'image',
+          file,
+        };
+      });
       setSelectedFiles((prev) => [...prev, ...newFiles]);
     }
   };
@@ -70,8 +84,10 @@ export default function Operations() {
         operation_id: selectedOperation.id,
         url: file.url,
         type: uploadType,
-        description: uploadDescription || `${uploadType === 'before' ? '作业前' : uploadType === 'during' ? '作业中' : '作业后'}照片`,
+        media_type: file.media_type,
+        description: uploadDescription || `${uploadType === 'before' ? '作业前' : uploadType === 'during' ? '作业中' : '作业后'}${file.media_type === 'video' ? '视频' : '照片'}`,
         uploaded_at: new Date().toISOString(),
+        upload_time: new Date().toISOString().replace('T', ' ').slice(0, 16),
       };
       addOperationPhoto(newPhoto);
     });
@@ -105,12 +121,45 @@ export default function Operations() {
     after: currentPhotos.filter((p) => p.type === 'after'),
   };
 
+  const renderMediaThumbnail = (photo: OperationPhoto) => {
+    if (photo.media_type === 'video') {
+      return (
+        <div
+          className="aspect-square rounded-xl bg-gray-900 border border-gray-100 flex items-center justify-center cursor-pointer relative group"
+          onClick={() => setPreviewMedia({ url: photo.url, media_type: photo.media_type })}
+        >
+          <Video className="w-12 h-12 text-gray-400" />
+          <Play className="absolute w-10 h-10 text-white/80" />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
+            <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+          <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded">
+            视频
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="relative group">
+        <div
+          className="aspect-square rounded-xl bg-cover bg-center border border-gray-100 cursor-pointer"
+          style={{ backgroundImage: photo.url ? `url(${photo.url})` : undefined }}
+          onClick={() => photo.url && setPreviewMedia({ url: photo.url, media_type: photo.media_type })}
+        >
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
+            <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">作业回传</h1>
-          <p className="text-gray-500 mt-1">实时监控作业进度，回传作业数据和照片</p>
+          <p className="text-gray-500 mt-1">实时监控作业进度，回传作业数据和照片视频</p>
         </div>
         <button
           onClick={() => selectedOperation && setShowUploadModal(true)}
@@ -118,7 +167,7 @@ export default function Operations() {
           className={`btn-primary flex items-center gap-2 ${!selectedOperation ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <Upload className="w-5 h-5" />
-          上传作业数据
+          上传作业素材
         </button>
       </div>
 
@@ -326,13 +375,13 @@ export default function Operations() {
 
               <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-800">作业照片</h3>
+                  <h3 className="font-semibold text-gray-800">作业素材（照片/视频）</h3>
                   <button
                     onClick={() => setShowUploadModal(true)}
                     className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1"
                   >
-                    <Camera className="w-4 h-4" />
-                    上传照片
+                    <Upload className="w-4 h-4" />
+                    上传素材
                   </button>
                 </div>
 
@@ -343,19 +392,16 @@ export default function Operations() {
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPhotoTypeColor(type)}`}>
                           {getPhotoTypeLabel(type)}
                         </span>
-                        <span className="text-gray-400">共 {photosByType[type].length} 张</span>
+                        <span className="text-gray-400">
+                          共 {photosByType[type].length} 个
+                          ({photosByType[type].filter(p => p.media_type === 'image').length}张照片,
+                          {photosByType[type].filter(p => p.media_type === 'video').length}个视频)
+                        </span>
                       </h4>
                       <div className="grid grid-cols-4 gap-3">
                         {photosByType[type].map((photo) => (
-                          <div key={photo.id} className="relative group">
-                            <div
-                              className="aspect-square rounded-xl bg-cover bg-center border border-gray-100"
-                              style={{ backgroundImage: `url(${photo.url})` }}
-                            >
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
-                                <Eye className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </div>
-                            </div>
+                          <div key={photo.id}>
+                            {renderMediaThumbnail(photo)}
                             <p className="text-xs text-gray-500 mt-1 truncate">{photo.description}</p>
                           </div>
                         ))}
@@ -366,8 +412,9 @@ export default function Operations() {
                           }}
                           className="aspect-square rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all"
                         >
-                          <Camera className="w-8 h-8 text-gray-400 mb-2" />
-                          <p className="text-xs text-gray-500">添加照片</p>
+                          <Camera className="w-8 h-8 text-gray-400 mb-1" />
+                          <Video className="w-6 h-6 text-gray-400 mb-1" />
+                          <p className="text-xs text-gray-500">添加素材</p>
                         </div>
                       </div>
                     </div>
@@ -414,14 +461,14 @@ export default function Operations() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
             <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xl font-bold text-gray-800">上传作业照片</h3>
+              <h3 className="text-xl font-bold text-gray-800">上传作业素材</h3>
               <p className="text-gray-500 text-sm mt-1">
                 当前作业：{selectedOperation?.farmland_name}
               </p>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">照片类型</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">素材类型</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['before', 'during', 'after'] as PhotoType[]).map((type) => (
                     <button
@@ -440,12 +487,12 @@ export default function Operations() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">上传照片</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">上传照片/视频</label>
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileSelect}
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                 />
@@ -453,23 +500,35 @@ export default function Operations() {
                   onClick={() => fileInputRef.current?.click()}
                   className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 hover:bg-primary-50 transition-all cursor-pointer"
                 >
-                  <Image className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 font-medium">点击选择照片</p>
-                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG 格式，可多选</p>
+                  <div className="flex items-center justify-center gap-3 mb-3">
+                    <Image className="w-10 h-10 text-gray-400" />
+                    <Video className="w-10 h-10 text-gray-400" />
+                  </div>
+                  <p className="text-gray-600 font-medium">点击选择照片或视频</p>
+                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG、MP4 格式，可多选</p>
                 </div>
 
                 {selectedFiles.length > 0 && (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
                     {selectedFiles.map((file, index) => (
                       <div key={index} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                        <div
-                          className="w-12 h-12 rounded bg-cover bg-center flex-shrink-0"
-                          style={{ backgroundImage: `url(${file.url})` }}
-                        />
+                        {file.media_type === 'video' ? (
+                          <div className="w-12 h-12 rounded bg-gray-200 flex items-center justify-center flex-shrink-0">
+                            <Video className="w-6 h-6 text-gray-500" />
+                          </div>
+                        ) : (
+                          <div
+                            className="w-12 h-12 rounded bg-cover bg-center flex-shrink-0"
+                            style={{ backgroundImage: `url(${file.url})` }}
+                          />
+                        )}
                         <span className="text-sm text-gray-700 flex-1 truncate">{file.name}</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {file.media_type === 'video' ? '视频' : '图片'}
+                        </span>
                         <button
                           onClick={() => removeFile(index)}
-                          className="p-1 hover:bg-gray-200 rounded transition-colors"
+                          className="p-1 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
                         >
                           <X className="w-4 h-4 text-gray-500" />
                         </button>
@@ -480,7 +539,7 @@ export default function Operations() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">照片描述</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">素材描述</label>
                 <textarea
                   rows={2}
                   value={uploadDescription}
@@ -506,6 +565,34 @@ export default function Operations() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {previewMedia && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4"
+          onClick={() => setPreviewMedia(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+            onClick={() => setPreviewMedia(null)}
+          >
+            <X className="w-8 h-8" />
+          </button>
+          {previewMedia.media_type === 'video' ? (
+            <video
+              src={previewMedia.url}
+              controls
+              autoPlay
+              className="max-w-full max-h-[80vh] rounded-lg"
+            />
+          ) : (
+            <img
+              src={previewMedia.url}
+              alt="预览"
+              className="max-w-full max-h-[80vh] rounded-lg"
+            />
+          )}
         </div>
       )}
     </div>

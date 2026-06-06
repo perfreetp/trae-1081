@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -23,7 +24,9 @@ import {
   ChevronRight,
   MapPin,
 } from 'lucide-react';
-import { mockDashboardStats, mockSeasonStats, mockAppointments, mockOperations, serviceTypeLabels, statusLabels, statusColors } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
+import { mockSeasonStats, serviceTypeLabels, statusLabels, statusColors } from '@/data/mockData';
+import { mockDrones, mockFarmlands } from '@/data/mockData';
 
 const COLORS = ['#2E7D32', '#42A5F5', '#FF9800', '#795548', '#9C27B0'];
 
@@ -34,20 +37,63 @@ const pieData = [
   { name: '杀菌作业', value: 10 },
 ];
 
-const statCards = [
-  { label: '服务地块', value: mockDashboardStats.total_farmlands, unit: '块', icon: Sprout, color: 'from-green-500 to-green-600', bg: 'bg-green-50' },
-  { label: '总作业面积', value: mockDashboardStats.total_area, unit: '亩', icon: MapPin, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50' },
-  { label: '待处理预约', value: mockDashboardStats.pending_appointments, unit: '单', icon: CalendarClock, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50' },
-  { label: '今日作业', value: mockDashboardStats.today_operations, unit: '架', icon: Plane, color: 'from-sky-500 to-sky-600', bg: 'bg-sky-50' },
-  { label: '本月营收', value: mockDashboardStats.monthly_revenue / 10000, unit: '万元', icon: DollarSign, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50' },
-  { label: '作业完成率', value: mockDashboardStats.completion_rate, unit: '%', icon: TrendingUp, color: 'from-teal-500 to-teal-600', bg: 'bg-teal-50' },
-  { label: '平均评分', value: mockDashboardStats.avg_rating, unit: '分', icon: Star, color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-50' },
-  { label: '在役无人机', value: mockDashboardStats.active_drones, unit: '架', icon: Plane, color: 'from-indigo-500 to-indigo-600', bg: 'bg-indigo-50' },
-];
-
 export default function Dashboard() {
-  const recentAppointments = mockAppointments.slice(0, 5);
-  const activeOperations = mockOperations.filter((o) => o.status === 'in_progress');
+  const {
+    farmlands,
+    appointments,
+    operations,
+    bills,
+    evaluations,
+    surveys,
+  } = useAppStore();
+
+  const stats = useMemo(() => {
+    const totalFarmlands = farmlands.length;
+    const totalArea = farmlands.reduce((sum, f) => sum + f.area_mu, 0);
+    const pendingAppointments = appointments.filter(
+      (a) => a.status === 'pending' || a.status === 'surveying'
+    ).length;
+    const todayOperations = operations.filter((o) => o.status !== 'paused').length;
+    const activeOperations = operations.filter((o) => o.status === 'in_progress').length;
+    const monthlyRevenue = bills.reduce((sum, b) => sum + b.paid_amount, 0);
+    const completedOperations = operations.filter((o) => o.status === 'completed').length;
+    const totalOperations = operations.length;
+    const completionRate = totalOperations > 0
+      ? Math.round((completedOperations / totalOperations) * 100)
+      : 0;
+    const avgRating = evaluations.length > 0
+      ? (evaluations.reduce((sum, e) => sum + e.rating, 0) / evaluations.length).toFixed(1)
+      : '0';
+    const activeDrones = mockDrones.filter((d) => d.status === 'available' || d.status === 'in_use').length;
+    const pendingResprays = evaluations.filter((e) => e.respray_status === 'pending').length;
+
+    return {
+      totalFarmlands,
+      totalArea,
+      pendingAppointments,
+      todayOperations,
+      activeOperations,
+      monthlyRevenue,
+      completionRate,
+      avgRating,
+      activeDrones,
+      pendingResprays,
+    };
+  }, [farmlands, appointments, operations, bills, evaluations, surveys]);
+
+  const statCards = useMemo(() => [
+    { label: '服务地块', value: stats.totalFarmlands, unit: '块', icon: Sprout, color: 'from-green-500 to-green-600', bg: 'bg-green-50' },
+    { label: '总作业面积', value: stats.totalArea.toFixed(0), unit: '亩', icon: MapPin, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50' },
+    { label: '待处理预约', value: stats.pendingAppointments, unit: '单', icon: CalendarClock, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50' },
+    { label: '在役作业', value: stats.activeOperations, unit: '架', icon: Plane, color: 'from-sky-500 to-sky-600', bg: 'bg-sky-50' },
+    { label: '累计营收', value: (stats.monthlyRevenue / 10000).toFixed(2), unit: '万元', icon: DollarSign, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50' },
+    { label: '作业完成率', value: stats.completionRate, unit: '%', icon: TrendingUp, color: 'from-teal-500 to-teal-600', bg: 'bg-teal-50' },
+    { label: '平均评分', value: stats.avgRating, unit: '分', icon: Star, color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-50' },
+    { label: '在役无人机', value: stats.activeDrones, unit: '架', icon: Plane, color: 'from-indigo-500 to-indigo-600', bg: 'bg-indigo-50' },
+  ], [stats]);
+
+  const recentAppointments = appointments.slice(0, 5);
+  const activeOperations = operations.filter((o) => o.status === 'in_progress');
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -77,6 +123,18 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {stats.pendingResprays > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Clock className="w-5 h-5 text-orange-600" />
+          </div>
+          <div>
+            <p className="font-medium text-orange-800">待处理补喷申请</p>
+            <p className="text-sm text-orange-600">当前有 {stats.pendingResprays} 条补喷申请待处理，请及时跟进</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-gray-100">
@@ -193,24 +251,31 @@ export default function Dashboard() {
               查看全部 <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-          <div className="space-y-3">
-            {recentAppointments.map((apt) => (
-              <div key={apt.id} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-                    <Sprout className="w-5 h-5 text-primary-600" />
+          {recentAppointments.length > 0 ? (
+            <div className="space-y-3">
+              {recentAppointments.map((apt) => (
+                <div key={apt.id} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
+                      <Sprout className="w-5 h-5 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-800 text-sm">{apt.farmland_name}</p>
+                      <p className="text-xs text-gray-500">
+                        {serviceTypeLabels[apt.service_type]} · {apt.area_mu}亩 · ¥{apt.quoted_price.toFixed(2)}/亩
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-800 text-sm">{apt.farmland_name}</p>
-                    <p className="text-xs text-gray-500">
-                      {serviceTypeLabels[apt.service_type]} · {apt.area_mu}亩
-                    </p>
-                  </div>
+                  <span className={`badge ${statusColors[apt.status]}`}>{statusLabels[apt.status]}</span>
                 </div>
-                <span className={`badge ${statusColors[apt.status]}`}>{statusLabels[apt.status]}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <CalendarClock className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+              <p>暂无预约记录</p>
+            </div>
+          )}
         </div>
       </div>
 

@@ -10,9 +10,14 @@ import {
   Clock,
   Plus,
   Undo2,
+  RefreshCw,
+  Share2,
+  Calendar,
+  Info,
+  AlertCircle,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
-import type { Survey } from '@/data/types';
+import type { Survey, Appointment, Farmland } from '@/data/types';
 
 interface Point {
   x: number;
@@ -20,12 +25,24 @@ interface Point {
 }
 
 export default function Surveying() {
-  const { surveys, updateSurvey } = useAppStore();
+  const {
+    surveys,
+    updateSurvey,
+    farmlands,
+    appointments,
+    updateAppointmentArea,
+    updateFarmlandArea,
+  } = useAppStore();
   const [selectedSurvey, setSelectedSurvey] = useState<Survey | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [mapType, setMapType] = useState<'satellite' | 'standard'>('satellite');
   const [points, setPoints] = useState<Point[]>([]);
   const [drawnArea, setDrawnArea] = useState<number>(0);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncTarget, setSyncTarget] = useState<'none' | 'farmland' | 'appointment'>('none');
+  const [selectedFarmlandId, setSelectedFarmlandId] = useState('');
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const pendingSurveys = surveys.filter((s) => s.status === 'pending');
@@ -57,6 +74,7 @@ export default function Surveying() {
           const parsed = JSON.parse(savedPoints) as Point[];
           setPoints(parsed);
           setDrawnArea(selectedSurvey.measured_area);
+          setSavedAt(selectedSurvey.updated_at || selectedSurvey.survey_date || null);
         } catch (e) {
           console.error('解析边界坐标失败');
         }
@@ -76,6 +94,7 @@ export default function Surveying() {
     setIsDrawing(true);
     setPoints([]);
     setDrawnArea(0);
+    setSavedAt(null);
   };
 
   const handleClear = () => {
@@ -90,23 +109,58 @@ export default function Surveying() {
     }
   };
 
+  const handleRedraw = () => {
+    if (!selectedSurvey) return;
+    if (confirm('确定要重新测绘吗？原边界数据将被覆盖。')) {
+      setPoints([]);
+      setDrawnArea(0);
+      setSavedAt(null);
+      setIsDrawing(true);
+      setSelectedSurvey({
+        ...selectedSurvey,
+        status: 'pending',
+        measured_area: 0,
+      });
+    }
+  };
+
   const handleSave = () => {
     if (!selectedSurvey || points.length < 3) {
       alert('请至少绘制3个点形成闭合区域');
       return;
     }
+    const now = new Date();
+    const savedAtStr = now.toISOString().replace('T', ' ').slice(0, 19);
     const updatedSurvey: Survey = {
       ...selectedSurvey,
       status: 'completed',
       measured_area: parseFloat(drawnArea.toFixed(2)),
-      survey_date: new Date().toISOString().split('T')[0],
+      survey_date: now.toISOString().split('T')[0],
       surveyor: '当前用户',
       boundary_coords: JSON.stringify(points),
+      updated_at: savedAtStr,
+      point_count: points.length,
     };
     updateSurvey(updatedSurvey);
     setSelectedSurvey(updatedSurvey);
     setIsDrawing(false);
+    setSavedAt(savedAtStr);
+    setShowSyncModal(true);
     alert('测绘结果保存成功！');
+  };
+
+  const handleSync = () => {
+    if (syncTarget === 'farmland' && selectedFarmlandId) {
+      updateFarmlandArea(selectedFarmlandId, parseFloat(drawnArea.toFixed(2)));
+      alert('面积已同步到地块档案！');
+    } else if (syncTarget === 'appointment' && selectedAppointmentId) {
+      updateAppointmentArea(selectedAppointmentId, parseFloat(drawnArea.toFixed(2)));
+      alert('面积已同步到预约！后续报价和账单将优先使用实测面积。');
+    }
+    setShowSyncModal(false);
+    setSyncTarget('none');
+    setSelectedFarmlandId('');
+    setSelectedAppointmentId('');
   };
 
   const getPolygonPoints = () => {
@@ -121,6 +175,16 @@ export default function Surveying() {
   };
 
   const center = getPolygonCenter();
+
+  const availableAppointments = appointments.filter(
+    (a) => a.farmland_name === selectedSurvey?.farmland_name ||
+      a.farmland_id === selectedSurvey?.farmland_id
+  );
+
+  const availableFarmlands = farmlands.filter(
+    (f) => f.name === selectedSurvey?.farmland_name ||
+      f.id === selectedSurvey?.farmland_id
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -198,6 +262,7 @@ export default function Surveying() {
                     setPoints([]);
                     setDrawnArea(0);
                     setIsDrawing(false);
+                    setSavedAt(null);
                   }}
                   className={`p-4 rounded-xl cursor-pointer transition-all ${
                     selectedSurvey?.id === survey.id
@@ -217,10 +282,16 @@ export default function Surveying() {
                     </span>
                   </div>
                   {survey.status === 'completed' && (
-                    <div className="flex items-center gap-2 mt-2 text-sm text-primary-600">
-                      <Ruler className="w-4 h-4" />
-                      <span>实测面积: {survey.measured_area}亩</span>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2 mt-2 text-sm text-primary-600">
+                        <Ruler className="w-4 h-4" />
+                        <span>实测面积: {survey.measured_area}亩</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                        <Map className="w-3 h-3" />
+                        <span>边界点: {survey.point_count || '-'} 个</span>
+                      </div>
+                    </>
                   )}
                   {survey.surveyor && (
                     <p className="text-xs text-gray-400 mt-1">测绘员: {survey.surveyor}</p>
@@ -229,6 +300,28 @@ export default function Surveying() {
               ))}
             </div>
           </div>
+
+          {selectedSurvey?.status === 'completed' && (
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+              <h3 className="font-semibold text-gray-800 mb-3">快捷操作</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={handleRedraw}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  重新测绘（覆盖原边界）
+                </button>
+                <button
+                  onClick={() => setShowSyncModal(true)}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                >
+                  <Share2 className="w-5 h-5" />
+                  同步面积到地块/预约
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="lg:col-span-2">
@@ -436,7 +529,7 @@ export default function Surveying() {
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={points.length < 3 || !selectedSurvey || selectedSurvey.status === 'completed'}
+                  disabled={points.length < 3 || !selectedSurvey}
                   className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-5 h-5" />
@@ -448,39 +541,208 @@ export default function Surveying() {
 
           {selectedSurvey?.status === 'completed' && (
             <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 mt-4">
-              <h3 className="font-semibold text-gray-800 mb-4">测绘详情</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-800">测绘详情</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRedraw}
+                    className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    重新测绘
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Map className="w-4 h-4 text-gray-500" />
+                    <p className="text-sm text-gray-500">边界点数量</p>
+                  </div>
+                  <p className="text-2xl font-bold text-gray-800">
+                    {selectedSurvey.point_count || points.length} <span className="text-sm font-normal">个</span>
+                  </p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Ruler className="w-4 h-4 text-green-500" />
+                    <p className="text-sm text-gray-500">实测面积</p>
+                  </div>
+                  <p className="text-2xl font-bold text-green-600">
+                    {selectedSurvey.measured_area} <span className="text-sm font-normal">亩</span>
+                  </p>
+                </div>
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="w-4 h-4 text-blue-500" />
+                    <p className="text-sm text-gray-500">测绘日期</p>
+                  </div>
+                  <p className="font-bold text-gray-800">{selectedSurvey.survey_date}</p>
+                </div>
+                <div className="bg-purple-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock className="w-4 h-4 text-purple-500" />
+                    <p className="text-sm text-gray-500">保存时间</p>
+                  </div>
+                  <p className="font-bold text-gray-800 text-sm">
+                    {savedAt || selectedSurvey.updated_at || '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mt-4">
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-sm text-gray-500">地块名称</p>
                   <p className="font-medium text-gray-800 mt-1">{selectedSurvey.farmland_name}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-500">实测面积</p>
-                  <p className="font-medium text-primary-600 mt-1 text-lg">{selectedSurvey.measured_area} 亩</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-500">测绘日期</p>
-                  <p className="font-medium text-gray-800 mt-1">{selectedSurvey.survey_date}</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-sm text-gray-500">测绘员</p>
                   <p className="font-medium text-gray-800 mt-1">{selectedSurvey.surveyor}</p>
                 </div>
               </div>
+
               {selectedSurvey.terrain_notes && (
                 <div className="mt-4 bg-yellow-50 rounded-xl p-4">
                   <p className="text-sm text-yellow-700 font-medium">地形备注</p>
                   <p className="text-gray-700 mt-1">{selectedSurvey.terrain_notes}</p>
                 </div>
               )}
-              <div className="mt-4 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <span className="text-sm text-green-700 font-medium">边界坐标已保存，共 {points.length} 个顶点</span>
+
+              <div className="mt-4 flex items-center gap-3 bg-green-50 rounded-xl p-4">
+                <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-green-700">
+                    边界坐标已保存，共 {selectedSurvey.point_count || points.length} 个顶点
+                  </p>
+                  <p className="text-xs text-green-600 mt-0.5">
+                    实测面积 {selectedSurvey.measured_area} 亩，可同步到地块档案或预约单
+                  </p>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {showSyncModal && selectedSurvey && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-800">同步实测面积</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                实测面积：<span className="font-bold text-primary-600">{selectedSurvey.measured_area} 亩</span>
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-blue-50 rounded-xl p-4 flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-700">为什么要同步？</p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    同步后，后续的报价计算和账单生成将优先使用实测面积，确保结算准确。
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  选择同步目标
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="radio"
+                      checked={syncTarget === 'none'}
+                      onChange={() => setSyncTarget('none')}
+                      className="w-4 h-4 text-primary-600"
+                    />
+                    <span className="text-gray-700">不同步，仅保存测绘结果</span>
+                  </label>
+                  <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${availableFarmlands.length === 0 ? 'opacity-50' : ''}`}>
+                    <input
+                      type="radio"
+                      checked={syncTarget === 'farmland'}
+                      onChange={() => setSyncTarget('farmland')}
+                      className="w-4 h-4 text-primary-600"
+                      disabled={availableFarmlands.length === 0}
+                    />
+                    <div className="flex-1">
+                      <span className="text-gray-700">同步到地块档案</span>
+                      {availableFarmlands.length > 0 && (
+                        <select
+                          value={selectedFarmlandId}
+                          onChange={(e) => setSelectedFarmlandId(e.target.value)}
+                          className="w-full mt-2 input-field text-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="">选择地块</option>
+                          {availableFarmlands.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} ({f.area_mu}亩 → {selectedSurvey.measured_area}亩)
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </label>
+                  <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${availableAppointments.length === 0 ? 'opacity-50' : ''}`}>
+                    <input
+                      type="radio"
+                      checked={syncTarget === 'appointment'}
+                      onChange={() => setSyncTarget('appointment')}
+                      className="w-4 h-4 text-primary-600"
+                      disabled={availableAppointments.length === 0}
+                    />
+                    <div className="flex-1">
+                      <span className="text-gray-700">同步到预约单</span>
+                      {availableAppointments.length > 0 && (
+                        <select
+                          value={selectedAppointmentId}
+                          onChange={(e) => setSelectedAppointmentId(e.target.value)}
+                          className="w-full mt-2 input-field text-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="">选择预约</option>
+                          {availableAppointments.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.farmland_name} - {a.service_type} ({a.area_mu}亩 → {selectedSurvey.measured_area}亩)
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {syncTarget !== 'none' && ((syncTarget === 'farmland' && !selectedFarmlandId) || (syncTarget === 'appointment' && !selectedAppointmentId)) && (
+                <div className="bg-orange-50 rounded-xl p-3 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-orange-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-orange-700">请选择具体的同步目标</p>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowSyncModal(false);
+                  setSyncTarget('none');
+                }}
+                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                稍后再说
+              </button>
+              <button
+                onClick={handleSync}
+                disabled={syncTarget !== 'none' && ((syncTarget === 'farmland' && !selectedFarmlandId) || (syncTarget === 'appointment' && !selectedAppointmentId))}
+                className="btn-primary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认同步
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

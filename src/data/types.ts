@@ -33,6 +33,14 @@ export interface PestRecord {
 export type AppointmentStatus = 'pending' | 'approved' | 'surveying' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
 export type ServiceType = 'pest_control' | 'fertilizer' | 'herbicide' | 'fungicide' | 'other';
 
+export const SERVICE_DEFAULT_PRICES: Record<ServiceType, number> = {
+  pest_control: 12.5,
+  fertilizer: 15.0,
+  herbicide: 10.0,
+  fungicide: 18.0,
+  other: 15.0,
+};
+
 export interface Appointment {
   id: string;
   farmland_id: string;
@@ -52,6 +60,7 @@ export interface Appointment {
 export interface Survey {
   id: string;
   appointment_id: string;
+  farmland_id?: string;
   farmland_name: string;
   measured_area: number;
   survey_date: string;
@@ -59,6 +68,8 @@ export interface Survey {
   status: 'pending' | 'completed';
   boundary_coords?: string;
   terrain_notes?: string;
+  updated_at?: string;
+  point_count?: number;
 }
 
 export interface Pesticide {
@@ -147,15 +158,27 @@ export interface Operation {
 }
 
 export type PhotoType = 'before' | 'during' | 'after';
+export type MediaType = 'image' | 'video';
 
 export interface OperationPhoto {
   id: string;
   operation_id: string;
   url: string;
   type: PhotoType;
+  media_type: MediaType;
   upload_time: string;
   uploaded_at?: string;
   description?: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  bill_id: string;
+  amount: number;
+  payment_method: 'cash' | 'bank_transfer' | 'wechat' | 'alipay' | 'other';
+  payment_date: string;
+  remark?: string;
+  created_at: string;
 }
 
 export interface BillItem {

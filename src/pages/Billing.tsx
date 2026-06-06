@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Receipt,
   DollarSign,
@@ -17,6 +17,8 @@ import {
   Plus,
   X,
   Check,
+  CreditCard,
+  History,
 } from 'lucide-react';
 import {
   BarChart,
@@ -32,18 +34,28 @@ import {
 } from 'recharts';
 import { mockSeasonStats, statusLabels, statusColors, mockAppointments, mockFarmlands } from '@/data/mockData';
 import { useAppStore } from '@/store/useAppStore';
-import type { Bill, BillItem } from '@/data/types';
+import type { Bill, BillItem, PaymentRecord } from '@/data/types';
 
 const COLORS = ['#22c55e', '#eab308', '#ef4444', '#3b82f6'];
 
+const paymentMethodLabels: Record<string, string> = {
+  cash: '现金',
+  bank_transfer: '银行转账',
+  wechat: '微信支付',
+  alipay: '支付宝',
+  other: '其他',
+};
+
 export default function Billing() {
-  const { bills, addBill, updateBillPayment } = useAppStore();
+  const { bills, addBill, updateBillPayment, paymentRecords, addPaymentRecord } = useAppStore();
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'wechat' | 'alipay' | 'other'>('wechat');
+  const [paymentRemark, setPaymentRemark] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [createForm, setCreateForm] = useState({
@@ -76,6 +88,11 @@ export default function Billing() {
     { name: '待支付', value: bills.filter((b) => b.status === 'unpaid').length, color: '#3b82f6' },
     { name: '已逾期', value: bills.filter((b) => b.status === 'overdue').length, color: '#ef4444' },
   ];
+
+  const billPaymentRecords = useMemo(() => {
+    if (!selectedBill) return [];
+    return paymentRecords.filter((r) => r.bill_id === selectedBill.id);
+  }, [selectedBill, paymentRecords]);
 
   const calculateTotal = (items: BillItem[]) => {
     return items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -165,18 +182,39 @@ export default function Billing() {
       alert('请输入有效的收款金额');
       return;
     }
-    const newPaid = selectedBill.paid_amount + amount;
-    const remaining = selectedBill.total_amount - newPaid;
+
+    const remaining = selectedBill.total_amount - selectedBill.paid_amount;
+    if (amount > remaining + 0.01) {
+      alert(`收款金额不能超过待支付金额 ¥${remaining.toFixed(2)}`);
+      return;
+    }
+
+    const actualAmount = Math.min(amount, remaining);
     let newStatus: Bill['status'] = selectedBill.status;
-    if (remaining <= 0) {
+    const newPaid = selectedBill.paid_amount + actualAmount;
+    if (newPaid >= selectedBill.total_amount - 0.01) {
       newStatus = 'paid';
     } else if (newPaid > 0) {
       newStatus = 'partial';
     }
 
-    updateBillPayment(selectedBill.id, newPaid, newStatus);
+    updateBillPayment(selectedBill.id, actualAmount, newStatus);
+
+    const record: PaymentRecord = {
+      id: `pr${Date.now()}`,
+      bill_id: selectedBill.id,
+      amount: actualAmount,
+      payment_method: paymentMethod,
+      payment_date: new Date().toISOString().split('T')[0],
+      remark: paymentRemark,
+      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    };
+    addPaymentRecord(record);
+
     setShowPaymentModal(false);
     setPaymentAmount('');
+    setPaymentRemark('');
+    setPaymentMethod('wechat');
     setSelectedBill(null);
     setShowDetailModal(false);
     alert('收款确认成功！');
@@ -191,6 +229,8 @@ export default function Billing() {
     setSelectedBill(bill);
     const remaining = bill.total_amount - bill.paid_amount;
     setPaymentAmount(remaining.toFixed(2));
+    setPaymentRemark('');
+    setPaymentMethod('wechat');
     setShowPaymentModal(true);
   };
 
@@ -337,6 +377,7 @@ export default function Billing() {
                     <th className="table-header">农户</th>
                     <th className="table-header">金额</th>
                     <th className="table-header">已付</th>
+                    <th className="table-header">待付</th>
                     <th className="table-header">到期日</th>
                     <th className="table-header">状态</th>
                     <th className="table-header">操作</th>
@@ -364,6 +405,11 @@ export default function Billing() {
                       <td className="table-cell">
                         <span className="text-green-600 font-medium">
                           ¥{bill.paid_amount.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="table-cell">
+                        <span className="text-orange-600 font-medium">
+                          ¥{(bill.total_amount - bill.paid_amount).toFixed(2)}
                         </span>
                       </td>
                       <td className="table-cell">
@@ -519,7 +565,7 @@ export default function Billing() {
                   className="input-field"
                 >
                   <option value="">手动填写</option>
-                  {mockAppointments.filter((a) => a.status !== 'pending').slice(0, 10).map((apt) => (
+                  {mockAppointments.filter((a) => a.status === 'approved' || a.status === 'scheduled' || a.status === 'completed').slice(0, 10).map((apt) => (
                     <option key={apt.id} value={apt.id}>
                       {apt.farmland_name} - {apt.area_mu}亩 - ¥{(apt.area_mu * apt.quoted_price).toFixed(2)}
                     </option>
@@ -652,7 +698,7 @@ export default function Billing() {
 
       {showDetailModal && selectedBill && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg animate-slide-up">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-slide-up">
             <div className="p-6 border-b border-gray-100">
               <h3 className="text-xl font-bold text-gray-800">账单详情</h3>
             </div>
@@ -718,6 +764,38 @@ export default function Billing() {
                   {statusLabels[selectedBill.status]}
                 </span>
               </div>
+
+              {billPaymentRecords.length > 0 && (
+                <div className="border-t border-gray-100 pt-4">
+                  <h4 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    收款记录
+                  </h4>
+                  <div className="space-y-2">
+                    {billPaymentRecords.map((record) => (
+                      <div key={record.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                            <CreditCard className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800 text-sm">
+                              {paymentMethodLabels[record.payment_method]}
+                            </p>
+                            <p className="text-xs text-gray-500">{record.created_at}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-green-600">+¥{record.amount.toFixed(2)}</p>
+                          {record.remark && (
+                            <p className="text-xs text-gray-500">{record.remark}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
               <button
@@ -731,6 +809,8 @@ export default function Billing() {
                   onClick={() => {
                     const remaining = selectedBill.total_amount - selectedBill.paid_amount;
                     setPaymentAmount(remaining.toFixed(2));
+                    setPaymentRemark('');
+                    setPaymentMethod('wechat');
                     setShowPaymentModal(true);
                   }}
                   className="btn-primary px-5 py-2.5"
@@ -779,12 +859,58 @@ export default function Billing() {
                   <input
                     type="number"
                     value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      const max = selectedBill.total_amount - selectedBill.paid_amount;
+                      if (val > max) {
+                        setPaymentAmount(max.toFixed(2));
+                      } else {
+                        setPaymentAmount(e.target.value);
+                      }
+                    }}
                     placeholder="请输入收款金额"
                     className="input-field pl-10 text-lg"
                     step="0.01"
+                    max={selectedBill.total_amount - selectedBill.paid_amount}
                   />
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  最多可收：¥{(selectedBill.total_amount - selectedBill.paid_amount).toFixed(2)}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  收款方式
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['wechat', 'alipay', 'bank_transfer', 'cash', 'other'] as const).map((method) => (
+                    <button
+                      key={method}
+                      onClick={() => setPaymentMethod(method)}
+                      className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        paymentMethod === method
+                          ? 'bg-primary-100 text-primary-700 border-2 border-primary-500'
+                          : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                      }`}
+                    >
+                      {paymentMethodLabels[method]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  备注（可选）
+                </label>
+                <input
+                  type="text"
+                  value={paymentRemark}
+                  onChange={(e) => setPaymentRemark(e.target.value)}
+                  placeholder="填写收款备注..."
+                  className="input-field"
+                />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
@@ -792,6 +918,7 @@ export default function Billing() {
                 onClick={() => {
                   setShowPaymentModal(false);
                   setPaymentAmount('');
+                  setPaymentRemark('');
                 }}
                 className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus,
   Search,
@@ -17,6 +17,7 @@ import {
 import { mockFarmlands, serviceTypeLabels, statusLabels, statusColors } from '@/data/mockData';
 import { useAppStore } from '@/store/useAppStore';
 import type { Appointment, ServiceType } from '@/data/types';
+import { SERVICE_DEFAULT_PRICES } from '@/data/types';
 
 export default function Appointments() {
   const { appointments, addAppointment, updateAppointmentStatus } = useAppStore();
@@ -29,7 +30,7 @@ export default function Appointments() {
     service_type: 'pest_control' as ServiceType,
     expected_date: '',
     area_mu: 0,
-    quoted_price: 12,
+    quoted_price: SERVICE_DEFAULT_PRICES.pest_control,
     notes: '',
   });
 
@@ -43,9 +44,9 @@ export default function Appointments() {
 
   const selectedFarmland = mockFarmlands.find((f) => f.id === formData.farmland_id);
 
-  const calculateTotal = () => {
+  const totalPrice = useMemo(() => {
     return (formData.area_mu * formData.quoted_price).toFixed(2);
-  };
+  }, [formData.area_mu, formData.quoted_price]);
 
   const handleSelectFarmland = (farmlandId: string) => {
     const farmland = mockFarmlands.find((f) => f.id === farmlandId);
@@ -56,6 +57,14 @@ export default function Appointments() {
         area_mu: farmland.area_mu,
       });
     }
+  };
+
+  const handleServiceTypeChange = (serviceType: ServiceType) => {
+    setFormData({
+      ...formData,
+      service_type: serviceType,
+      quoted_price: SERVICE_DEFAULT_PRICES[serviceType],
+    });
   };
 
   const handleSubmit = () => {
@@ -89,7 +98,7 @@ export default function Appointments() {
       service_type: 'pest_control',
       expected_date: '',
       area_mu: 0,
-      quoted_price: 12,
+      quoted_price: SERVICE_DEFAULT_PRICES.pest_control,
       notes: '',
     });
     alert('预约提交成功！');
@@ -97,7 +106,7 @@ export default function Appointments() {
 
   const handleApprove = (apt: Appointment) => {
     updateAppointmentStatus(apt.id, 'approved');
-    alert('预约已确认！');
+    alert('预约已确认！可在排班和账单中选择此预约');
   };
 
   const handleCancel = (apt: Appointment) => {
@@ -214,6 +223,7 @@ export default function Appointments() {
                 <th className="table-header">服务类型</th>
                 <th className="table-header">作物</th>
                 <th className="table-header">面积</th>
+                <th className="table-header">单价/亩</th>
                 <th className="table-header">农户</th>
                 <th className="table-header">期望日期</th>
                 <th className="table-header">总价</th>
@@ -242,6 +252,9 @@ export default function Appointments() {
                   </td>
                   <td className="table-cell">
                     <span className="text-gray-700">{apt.area_mu}亩</span>
+                  </td>
+                  <td className="table-cell">
+                    <span className="text-gray-700">¥{apt.quoted_price.toFixed(2)}</span>
                   </td>
                   <td className="table-cell">
                     <div>
@@ -339,7 +352,7 @@ export default function Appointments() {
                   </label>
                   <select
                     value={formData.service_type}
-                    onChange={(e) => setFormData({ ...formData, service_type: e.target.value as ServiceType })}
+                    onChange={(e) => handleServiceTypeChange(e.target.value as ServiceType)}
                     className="input-field"
                   >
                     <option value="pest_control">病虫害防治</option>
@@ -348,6 +361,9 @@ export default function Appointments() {
                     <option value="fungicide">杀菌作业</option>
                     <option value="other">其他服务</option>
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    默认单价：¥{SERVICE_DEFAULT_PRICES[formData.service_type]}/亩
+                  </p>
                 </div>
 
                 <div>
@@ -375,6 +391,8 @@ export default function Appointments() {
                     value={formData.area_mu}
                     onChange={(e) => setFormData({ ...formData, area_mu: parseFloat(e.target.value) || 0 })}
                     className="input-field"
+                    step="0.1"
+                    min="0"
                   />
                 </div>
 
@@ -387,6 +405,8 @@ export default function Appointments() {
                     value={formData.quoted_price}
                     onChange={(e) => setFormData({ ...formData, quoted_price: parseFloat(e.target.value) || 0 })}
                     className="input-field"
+                    step="0.1"
+                    min="0"
                   />
                 </div>
               </div>
@@ -394,7 +414,7 @@ export default function Appointments() {
               <div className="bg-primary-50 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Calculator className="w-5 h-5 text-primary-600" />
-                  <span className="font-medium text-primary-700">费用核算</span>
+                  <span className="font-medium text-primary-700">费用核算（实时计算）</span>
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
@@ -403,11 +423,11 @@ export default function Appointments() {
                   </div>
                   <div>
                     <p className="text-gray-500">单价</p>
-                    <p className="font-semibold text-gray-800">¥{formData.quoted_price}/亩</p>
+                    <p className="font-semibold text-gray-800">¥{formData.quoted_price.toFixed(2)}/亩</p>
                   </div>
                   <div>
                     <p className="text-gray-500">预估总价</p>
-                    <p className="font-bold text-primary-600 text-lg">¥{calculateTotal()}</p>
+                    <p className="font-bold text-primary-600 text-lg">¥{totalPrice}</p>
                   </div>
                 </div>
               </div>
@@ -467,6 +487,10 @@ export default function Appointments() {
                 <span className="font-medium">{selectedAppointment.area_mu}亩</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-gray-500">单价/亩</span>
+                <span className="font-medium">¥{selectedAppointment.quoted_price.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-gray-500">农户信息</span>
                 <div className="text-right">
                   <p className="font-medium">{selectedAppointment.farmer_name}</p>
@@ -479,9 +503,12 @@ export default function Appointments() {
               </div>
               <div className="flex items-center justify-between pt-4 border-t border-gray-100">
                 <span className="text-gray-500">服务费用</span>
-                <span className="text-xl font-bold text-primary-600">
-                  ¥{(selectedAppointment.area_mu * selectedAppointment.quoted_price).toFixed(2)}
-                </span>
+                <div className="text-right">
+                  <p className="text-sm text-gray-500">{selectedAppointment.area_mu}亩 × ¥{selectedAppointment.quoted_price.toFixed(2)}/亩</p>
+                  <span className="text-xl font-bold text-primary-600">
+                    ¥{(selectedAppointment.area_mu * selectedAppointment.quoted_price).toFixed(2)}
+                  </span>
+                </div>
               </div>
               {selectedAppointment.notes && (
                 <div className="bg-gray-50 rounded-xl p-4">
