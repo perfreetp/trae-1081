@@ -39,6 +39,8 @@ export default function Operations() {
   const [uploadDescription, setUploadDescription] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [previewMedia, setPreviewMedia] = useState<{ url: string; media_type: MediaType } | null>(null);
+  const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video'>('all');
+  const [phaseFilter, setPhaseFilter] = useState<'all' | 'before' | 'during' | 'after'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredOperations = operations.filter(
@@ -115,10 +117,16 @@ export default function Operations() {
     }
   };
 
+  const filteredPhotos = currentPhotos.filter((p) => {
+    const matchPhase = phaseFilter === 'all' || p.type === phaseFilter;
+    const matchMedia = mediaFilter === 'all' || p.media_type === mediaFilter;
+    return matchPhase && matchMedia;
+  });
+
   const photosByType = {
-    before: currentPhotos.filter((p) => p.type === 'before'),
-    during: currentPhotos.filter((p) => p.type === 'during'),
-    after: currentPhotos.filter((p) => p.type === 'after'),
+    before: filteredPhotos.filter((p) => p.type === 'before'),
+    during: filteredPhotos.filter((p) => p.type === 'during'),
+    after: filteredPhotos.filter((p) => p.type === 'after'),
   };
 
   const renderMediaThumbnail = (photo: OperationPhoto) => {
@@ -385,6 +393,48 @@ export default function Operations() {
                   </button>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">作业阶段：</span>
+                    <div className="flex gap-1">
+                      {(['all', 'before', 'during', 'after'] as const).map((phase) => (
+                        <button
+                          key={phase}
+                          onClick={() => setPhaseFilter(phase)}
+                          className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                            phaseFilter === phase
+                              ? 'bg-primary-500 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {phase === 'all' ? '全部' : phase === 'before' ? '作业前' : phase === 'during' ? '作业中' : '作业后'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">素材类型：</span>
+                    <div className="flex gap-1">
+                      {(['all', 'image', 'video'] as const).map((media) => (
+                        <button
+                          key={media}
+                          onClick={() => setMediaFilter(media)}
+                          className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                            mediaFilter === media
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {media === 'all' ? '全部' : media === 'image' ? '图片' : '视频'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-auto">
+                    共 {filteredPhotos.length} 个素材
+                  </span>
+                </div>
+
                 <div className="space-y-6">
                   {(['before', 'during', 'after'] as PhotoType[]).map((type) => (
                     <div key={type}>
@@ -585,12 +635,14 @@ export default function Operations() {
               controls
               autoPlay
               className="max-w-full max-h-[80vh] rounded-lg"
+              onClick={(e) => e.stopPropagation()}
             />
           ) : (
             <img
               src={previewMedia.url}
               alt="预览"
               className="max-w-full max-h-[80vh] rounded-lg"
+              onClick={(e) => e.stopPropagation()}
             />
           )}
         </div>

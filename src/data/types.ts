@@ -3,6 +3,7 @@ export interface Farmland {
   name: string;
   location: string;
   area_mu: number;
+  measured_area?: number;
   crop_type: string;
   owner: string;
   owner_phone: string;
@@ -10,6 +11,7 @@ export interface Farmland {
   soil_type?: string;
   irrigation?: string;
   notes?: string;
+  last_measured_at?: string;
 }
 
 export interface CropCycle {
@@ -30,7 +32,20 @@ export interface PestRecord {
   effect: string;
 }
 
-export type AppointmentStatus = 'pending' | 'approved' | 'surveying' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+export type AppointmentStatus = 
+  | 'pending' 
+  | 'approved' 
+  | 'surveying' 
+  | 'surveyed'
+  | 'scheduling' 
+  | 'scheduled' 
+  | 'in_progress' 
+  | 'operation_completed'
+  | 'photos_uploaded'
+  | 'signed'
+  | 'pending_settlement' 
+  | 'settled'
+  | 'cancelled';
 export type ServiceType = 'pest_control' | 'fertilizer' | 'herbicide' | 'fungicide' | 'other';
 
 export const SERVICE_DEFAULT_PRICES: Record<ServiceType, number> = {
@@ -41,6 +56,38 @@ export const SERVICE_DEFAULT_PRICES: Record<ServiceType, number> = {
   other: 15.0,
 };
 
+export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
+  pending: '待审核',
+  approved: '待测绘',
+  surveying: '测绘中',
+  surveyed: '待排班',
+  scheduling: '排班中',
+  scheduled: '待作业',
+  in_progress: '作业中',
+  operation_completed: '待回传',
+  photos_uploaded: '待签收',
+  signed: '待结算',
+  pending_settlement: '待结算',
+  settled: '已结清',
+  cancelled: '已取消',
+};
+
+export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
+  pending: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-orange-100 text-orange-700',
+  surveying: 'bg-blue-100 text-blue-700',
+  surveyed: 'bg-sky-100 text-sky-700',
+  scheduling: 'bg-purple-100 text-purple-700',
+  scheduled: 'bg-indigo-100 text-indigo-700',
+  in_progress: 'bg-green-100 text-green-700',
+  operation_completed: 'bg-teal-100 text-teal-700',
+  photos_uploaded: 'bg-cyan-100 text-cyan-700',
+  signed: 'bg-emerald-100 text-emerald-700',
+  pending_settlement: 'bg-amber-100 text-amber-700',
+  settled: 'bg-gray-100 text-gray-700',
+  cancelled: 'bg-red-100 text-red-700',
+};
+
 export interface Appointment {
   id: string;
   farmland_id: string;
@@ -48,6 +95,7 @@ export interface Appointment {
   service_type: ServiceType;
   expected_date: string;
   area_mu: number;
+  measured_area?: number;
   quoted_price: number;
   status: AppointmentStatus;
   crop_type: string;
@@ -55,6 +103,13 @@ export interface Appointment {
   farmer_phone: string;
   created_at: string;
   notes?: string;
+  schedule_id?: string;
+  bill_id?: string;
+  operation_id?: string;
+  survey_id?: string;
+  evaluation_id?: string;
+  signed_at?: string;
+  signed_by?: string;
 }
 
 export interface Survey {
@@ -130,6 +185,10 @@ export interface Schedule {
   start_time?: string;
   end_time?: string;
   notes?: string;
+  has_weather_risk?: boolean;
+  risk_confirmed?: boolean;
+  created_by?: string;
+  created_at?: string;
 }
 
 export interface WeatherInfo {
@@ -181,11 +240,31 @@ export interface PaymentRecord {
   created_at: string;
 }
 
+export type BillItemType = 'service' | 'pesticide' | 'respray' | 'discount' | 'other';
+
 export interface BillItem {
+  id?: string;
+  type: BillItemType;
   name: string;
   quantity: number;
   unit_price: number;
   subtotal: number;
+  description?: string;
+}
+
+export type RefundStatus = 'pending' | 'completed' | 'cancelled';
+
+export interface RefundRecord {
+  id: string;
+  bill_id: string;
+  amount: number;
+  refund_method: 'cash' | 'bank_transfer' | 'wechat' | 'alipay' | 'other';
+  refund_reason: string;
+  refund_date: string;
+  status: RefundStatus;
+  operator: string;
+  remark?: string;
+  created_at: string;
 }
 
 export interface Bill {
@@ -196,11 +275,15 @@ export interface Bill {
   farmer_name: string;
   total_amount: number;
   paid_amount: number;
-  status: 'unpaid' | 'partial' | 'paid' | 'overdue';
+  refunded_amount?: number;
+  status: 'unpaid' | 'partial' | 'paid' | 'overdue' | 'refunded';
   due_date: string;
   paid_date?: string;
   items: BillItem[];
   created_at: string;
+  created_by?: string;
+  billed_area?: number;
+  area_type?: 'registered' | 'measured';
 }
 
 export type ResprayStatus = 'pending' | 'approved' | 'completed' | 'rejected';

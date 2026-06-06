@@ -19,6 +19,7 @@ import {
   Check,
   CreditCard,
   History,
+  Undo2,
 } from 'lucide-react';
 import {
   BarChart,
@@ -34,7 +35,7 @@ import {
 } from 'recharts';
 import { mockSeasonStats, statusLabels, statusColors, mockAppointments, mockFarmlands } from '@/data/mockData';
 import { useAppStore } from '@/store/useAppStore';
-import type { Bill, BillItem, PaymentRecord } from '@/data/types';
+import type { Bill, BillItem, PaymentRecord, RefundRecord, BillItemType } from '@/data/types';
 
 const COLORS = ['#22c55e', '#eab308', '#ef4444', '#3b82f6'];
 
@@ -46,16 +47,44 @@ const paymentMethodLabels: Record<string, string> = {
   other: '其他',
 };
 
+const billItemTypeLabels: Record<BillItemType, string> = {
+  service: '服务费',
+  pesticide: '药剂费',
+  respray: '补喷费',
+  discount: '优惠/减免',
+  other: '其他',
+};
+
+const billItemTypeColors: Record<BillItemType, string> = {
+  service: 'bg-green-100 text-green-700',
+  pesticide: 'bg-blue-100 text-blue-700',
+  respray: 'bg-orange-100 text-orange-700',
+  discount: 'bg-red-100 text-red-700',
+  other: 'bg-gray-100 text-gray-700',
+};
+
 export default function Billing() {
-  const { bills, addBill, updateBillPayment, paymentRecords, addPaymentRecord } = useAppStore();
+  const { 
+    bills, 
+    addBill, 
+    updateBillPayment, 
+    paymentRecords, 
+    addPaymentRecord,
+    refundRecords,
+    processRefund,
+  } = useAppStore();
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bank_transfer' | 'wechat' | 'alipay' | 'other'>('wechat');
   const [paymentRemark, setPaymentRemark] = useState('');
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundMethod, setRefundMethod] = useState<'cash' | 'bank_transfer' | 'wechat' | 'alipay' | 'other'>('wechat');
+  const [refundReason, setRefundReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [createForm, setCreateForm] = useState({
@@ -94,8 +123,43 @@ export default function Billing() {
     return paymentRecords.filter((r) => r.bill_id === selectedBill.id);
   }, [selectedBill, paymentRecords]);
 
+  const billRefundRecords = useMemo(() => {
+    if (!selectedBill) return [];
+    return refundRecords.filter((r) => r.bill_id === selectedBill.id);
+  }, [selectedBill, refundRecords]);
+
   const calculateTotal = (items: BillItem[]) => {
     return items.reduce((sum, item) => sum + item.subtotal, 0);
+  };
+
+  const handleRefundSubmit = () => {
+    if (!selectedBill) return;
+    const amount = parseFloat(refundAmount);
+    if (!amount || amount <= 0) {
+      alert('请输入有效的退款金额');
+      return;
+    }
+    const maxRefund = selectedBill.paid_amount - (selectedBill.refunded_amount || 0);
+    if (amount > maxRefund + 0.01) {
+      alert(`退款金额不能超过已收金额 ¥${maxRefund.toFixed(2)}`);
+      return;
+    }
+    const refund: RefundRecord = {
+      id: `rf${Date.now()}`,
+      bill_id: selectedBill.id,
+      amount: amount,
+      refund_method: refundMethod,
+      refund_reason: refundReason,
+      refund_date: new Date().toISOString().split('T')[0],
+      status: 'completed',
+      operator: '当前用户',
+      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    };
+    processRefund(selectedBill.id, refund);
+    setShowRefundModal(false);
+    setRefundAmount('');
+    setRefundReason('');
+    alert('退款成功！');
   };
 
   const handleSelectAppointment = (appointmentId: string) => {
@@ -796,28 +860,77 @@ export default function Billing() {
                   </div>
                 </div>
               )}
-            </div>
-            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                关闭
-              </button>
-              {selectedBill.status !== 'paid' && (
-                <button
-                  onClick={() => {
-                    const remaining = selectedBill.total_amount - selectedBill.paid_amount;
-                    setPaymentAmount(remaining.toFixed(2));
-                    setPaymentRemark('');
-                    setPaymentMethod('wechat');
-                    setShowPaymentModal(true);
-                  }}
-                  className="btn-primary px-5 py-2.5"
-                >
-                  确认收款
-                </button>
+
+              {billRefundRecords.length > 0 && (
+                <div className="border-t border-gray-100 pt-4">
+                  <h4 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                    <Undo2 className="w-4 h-4" />
+                    退款记录
+                  </h4>
+                  <div className="space-y-2">
+                    {billRefundRecords.map((record) => (
+                      <div key={record.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                            <Undo2 className="w-4 h-4 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800 text-sm">
+                              {paymentMethodLabels[record.refund_method]} 退款
+                            </p>
+                            <p className="text-xs text-gray-500">{record.created_at}</p>
+                            <p className="text-xs text-gray-500">原因：{record.refund_reason}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-red-600">-¥{record.amount.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-between">
+              <div>
+                {selectedBill.paid_amount > 0 && (
+                  <button
+                    onClick={() => {
+                      const maxRefund = selectedBill.paid_amount - (selectedBill.refunded_amount || 0);
+                      setRefundAmount(maxRefund.toFixed(2));
+                      setRefundReason('');
+                      setRefundMethod('wechat');
+                      setShowRefundModal(true);
+                    }}
+                    className="px-5 py-2.5 border border-red-200 rounded-lg font-medium text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                  >
+                    <Undo2 className="w-4 h-4" />
+                    退款/冲正
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  关闭
+                </button>
+                {selectedBill.status !== 'paid' && selectedBill.status !== 'refunded' && (
+                  <button
+                    onClick={() => {
+                      const remaining = selectedBill.total_amount - selectedBill.paid_amount;
+                      setPaymentAmount(remaining.toFixed(2));
+                      setPaymentRemark('');
+                      setPaymentMethod('wechat');
+                      setShowPaymentModal(true);
+                    }}
+                    className="btn-primary px-5 py-2.5"
+                  >
+                    确认收款
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -926,6 +1039,111 @@ export default function Billing() {
               </button>
               <button onClick={handleConfirmPayment} className="btn-primary px-5 py-2.5">
                 确认收款
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRefundModal && selectedBill && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <Undo2 className="w-5 h-5 text-red-500" />
+                退款/冲正
+              </h3>
+              <p className="text-gray-500 text-sm mt-1">
+                账单：{selectedBill.id.toUpperCase()}
+              </p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="bg-red-50 rounded-xl p-4 space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">已支付金额</span>
+                  <span className="font-bold text-gray-800">¥{selectedBill.paid_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">已退款金额</span>
+                  <span className="font-medium text-red-600">¥{(selectedBill.refunded_amount || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-red-200">
+                  <span className="text-gray-500">可退款金额</span>
+                  <span className="font-bold text-orange-600">
+                    ¥{(selectedBill.paid_amount - (selectedBill.refunded_amount || 0)).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  退款金额（元）
+                </label>
+                <div className="relative">
+                  <DollarSign className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    value={refundAmount}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      const max = selectedBill.paid_amount - (selectedBill.refunded_amount || 0);
+                      if (val > max) {
+                        setRefundAmount(max.toFixed(2));
+                      } else {
+                        setRefundAmount(e.target.value);
+                      }
+                    }}
+                    placeholder="请输入退款金额"
+                    className="input-field pl-10 text-lg"
+                    step="0.01"
+                    max={selectedBill.paid_amount - (selectedBill.refunded_amount || 0)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  退款方式
+                </label>
+                <select
+                  value={refundMethod}
+                  onChange={(e) => setRefundMethod(e.target.value as any)}
+                  className="input-field"
+                >
+                  <option value="wechat">微信支付</option>
+                  <option value="alipay">支付宝</option>
+                  <option value="bank_transfer">银行转账</option>
+                  <option value="cash">现金</option>
+                  <option value="other">其他</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  退款原因
+                </label>
+                <textarea
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="请填写退款原因..."
+                  className="input-field"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowRefundModal(false);
+                  setRefundAmount('');
+                  setRefundReason('');
+                }}
+                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button onClick={handleRefundSubmit} className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors">
+                确认退款
               </button>
             </div>
           </div>

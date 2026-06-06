@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart,
   Bar,
@@ -38,6 +39,7 @@ const pieData = [
 ];
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const {
     farmlands,
     appointments,
@@ -45,17 +47,29 @@ export default function Dashboard() {
     bills,
     evaluations,
     surveys,
+    schedules,
   } = useAppStore();
 
   const stats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
     const totalFarmlands = farmlands.length;
     const totalArea = farmlands.reduce((sum, f) => sum + f.area_mu, 0);
-    const pendingAppointments = appointments.filter(
-      (a) => a.status === 'pending' || a.status === 'surveying'
-    ).length;
-    const todayOperations = operations.filter((o) => o.status !== 'paused').length;
+    
+    const pendingReview = appointments.filter((a) => a.status === 'pending').length;
+    const pendingSurvey = appointments.filter((a) => a.status === 'approved' || a.status === 'surveying').length;
+    const pendingScheduling = appointments.filter((a) => a.status === 'surveyed').length;
+    
+    const todaySchedules = schedules.filter((s) => s.operation_date === today).length;
+    const weekSchedules = schedules.filter((s) => s.operation_date >= weekStartStr).length;
+    
+    const totalPaid = bills.reduce((sum, b) => sum + b.paid_amount, 0);
+    const totalUnpaid = bills.reduce((sum, b) => sum + (b.total_amount - b.paid_amount), 0);
+    
     const activeOperations = operations.filter((o) => o.status === 'in_progress').length;
-    const monthlyRevenue = bills.reduce((sum, b) => sum + b.paid_amount, 0);
     const completedOperations = operations.filter((o) => o.status === 'completed').length;
     const totalOperations = operations.length;
     const completionRate = totalOperations > 0
@@ -70,27 +84,31 @@ export default function Dashboard() {
     return {
       totalFarmlands,
       totalArea,
-      pendingAppointments,
-      todayOperations,
+      pendingReview,
+      pendingSurvey,
+      pendingScheduling,
+      todaySchedules,
+      weekSchedules,
+      totalPaid,
+      totalUnpaid,
       activeOperations,
-      monthlyRevenue,
       completionRate,
       avgRating,
       activeDrones,
       pendingResprays,
     };
-  }, [farmlands, appointments, operations, bills, evaluations, surveys]);
+  }, [farmlands, appointments, operations, bills, evaluations, surveys, schedules]);
 
   const statCards = useMemo(() => [
-    { label: '服务地块', value: stats.totalFarmlands, unit: '块', icon: Sprout, color: 'from-green-500 to-green-600', bg: 'bg-green-50' },
-    { label: '总作业面积', value: stats.totalArea.toFixed(0), unit: '亩', icon: MapPin, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50' },
-    { label: '待处理预约', value: stats.pendingAppointments, unit: '单', icon: CalendarClock, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50' },
-    { label: '在役作业', value: stats.activeOperations, unit: '架', icon: Plane, color: 'from-sky-500 to-sky-600', bg: 'bg-sky-50' },
-    { label: '累计营收', value: (stats.monthlyRevenue / 10000).toFixed(2), unit: '万元', icon: DollarSign, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50' },
-    { label: '作业完成率', value: stats.completionRate, unit: '%', icon: TrendingUp, color: 'from-teal-500 to-teal-600', bg: 'bg-teal-50' },
-    { label: '平均评分', value: stats.avgRating, unit: '分', icon: Star, color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-50' },
-    { label: '在役无人机', value: stats.activeDrones, unit: '架', icon: Plane, color: 'from-indigo-500 to-indigo-600', bg: 'bg-indigo-50' },
-  ], [stats]);
+    { label: '待审核预约', value: stats.pendingReview, unit: '单', icon: CalendarClock, color: 'from-red-500 to-red-600', bg: 'bg-red-50', onClick: () => navigate('/appointments?status=pending') },
+    { label: '待测绘', value: stats.pendingSurvey, unit: '单', icon: MapPin, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50', onClick: () => navigate('/surveys?status=pending') },
+    { label: '待排班', value: stats.pendingScheduling, unit: '单', icon: CalendarClock, color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-50', onClick: () => navigate('/appointments?status=surveyed') },
+    { label: '今日排班', value: stats.todaySchedules, unit: '架', icon: Plane, color: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', onClick: () => navigate('/scheduling') },
+    { label: '本周排班', value: stats.weekSchedules, unit: '架', icon: Plane, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/scheduling') },
+    { label: '累计实收', value: (stats.totalPaid / 10000).toFixed(2), unit: '万元', icon: DollarSign, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50', onClick: () => navigate('/billing?status=paid') },
+    { label: '待收款', value: (stats.totalUnpaid / 10000).toFixed(1), unit: '万元', icon: TrendingUp, color: 'from-purple-500 to-purple-600', bg: 'bg-purple-50', onClick: () => navigate('/billing?status=unpaid') },
+    { label: '待处理补喷', value: stats.pendingResprays, unit: '条', icon: Clock, color: 'from-pink-500 to-pink-600', bg: 'bg-pink-50', onClick: () => navigate('/evaluation') },
+  ], [stats, navigate]);
 
   const recentAppointments = appointments.slice(0, 5);
   const activeOperations = operations.filter((o) => o.status === 'in_progress');
@@ -106,7 +124,12 @@ export default function Dashboard() {
         {statCards.map((card, index) => {
           const Icon = card.icon;
           return (
-            <div key={index} className="stat-card animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
+            <div 
+              key={index} 
+              className="stat-card animate-slide-up cursor-pointer hover:shadow-md transition-shadow" 
+              style={{ animationDelay: `${index * 50}ms` }}
+              onClick={card.onClick}
+            >
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-sm text-gray-500">{card.label}</p>
@@ -125,14 +148,18 @@ export default function Dashboard() {
       </div>
 
       {stats.pendingResprays > 0 && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center gap-3">
+        <div 
+          onClick={() => navigate('/evaluation')}
+          className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:bg-orange-100 transition-colors"
+        >
           <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
             <Clock className="w-5 h-5 text-orange-600" />
           </div>
-          <div>
+          <div className="flex-1">
             <p className="font-medium text-orange-800">待处理补喷申请</p>
             <p className="text-sm text-orange-600">当前有 {stats.pendingResprays} 条补喷申请待处理，请及时跟进</p>
           </div>
+          <ChevronRight className="w-5 h-5 text-orange-400" />
         </div>
       )}
 

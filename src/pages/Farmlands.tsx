@@ -117,7 +117,14 @@ export default function Farmlands() {
                   <div className="flex items-center gap-4 mt-3 text-sm text-gray-600">
                     <span className="flex items-center gap-1">
                       <Sprout className="w-4 h-4" />
-                      {farmland.area_mu}亩
+                      {farmland.measured_area ? (
+                        <>
+                          <span className="text-green-600 font-medium">{farmland.measured_area}亩</span>
+                          <span className="text-gray-400 text-xs">(档案{farmland.area_mu}亩)</span>
+                        </>
+                      ) : (
+                        <>{farmland.area_mu}亩</>
+                      )}
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
@@ -158,8 +165,14 @@ export default function Farmlands() {
                 <div className="grid grid-cols-4 gap-4 mt-6">
                   <div className="bg-green-50 rounded-xl p-4 text-center">
                     <Sprout className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">面积</p>
-                    <p className="text-xl font-bold text-gray-800">{selectedFarmland.area_mu}<span className="text-sm font-normal">亩</span></p>
+                    <p className="text-sm text-gray-600">实测面积</p>
+                    <p className={`text-xl font-bold ${selectedFarmland.measured_area ? 'text-green-600' : 'text-gray-400'}`}>
+                      {selectedFarmland.measured_area || '-'}
+                      <span className="text-sm font-normal">{selectedFarmland.measured_area ? '亩' : ''}</span>
+                    </p>
+                    {selectedFarmland.last_measured_at && (
+                      <p className="text-xs text-gray-400 mt-1">{selectedFarmland.last_measured_at.slice(0, 10)}</p>
+                    )}
                   </div>
                   <div className="bg-blue-50 rounded-xl p-4 text-center">
                     <Leaf className="w-6 h-6 text-blue-600 mx-auto mb-2" />
@@ -242,9 +255,21 @@ export default function Farmlands() {
                           <span className="text-gray-500">灌溉方式</span>
                           <span className="font-medium text-gray-800">{selectedFarmland.irrigation || '喷灌'}</span>
                         </div>
-                        <div className="flex justify-between py-2">
-                          <span className="text-gray-500">面积</span>
+                        <div className="flex justify-between py-2 border-b border-gray-50">
+                          <span className="text-gray-500">档案面积</span>
                           <span className="font-medium text-gray-800">{selectedFarmland.area_mu}亩</span>
+                        </div>
+                        <div className="flex justify-between py-2">
+                          <span className="text-gray-500">实测面积</span>
+                          <span className={`font-medium ${selectedFarmland.measured_area ? 'text-green-600' : 'text-gray-400'}`}>
+                            {selectedFarmland.measured_area ? `${selectedFarmland.measured_area}亩` : '未测绘'}
+                            {selectedFarmland.measured_area && selectedFarmland.measured_area !== selectedFarmland.area_mu && (
+                              <span className="ml-1 text-xs text-gray-400">
+                                ({selectedFarmland.measured_area > selectedFarmland.area_mu ? '+' : ''}
+                                {(selectedFarmland.measured_area - selectedFarmland.area_mu).toFixed(1)}亩)
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </div>
                     </div>

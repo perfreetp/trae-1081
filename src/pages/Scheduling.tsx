@@ -32,8 +32,11 @@ import type { Schedule } from '@/data/types';
 
 interface ConflictInfo {
   hasConflict: boolean;
+  appointmentConflict?: string;
   droneConflict?: string;
+  droneUnavailable?: string;
   pilotConflict?: string;
+  pilotUnavailable?: string;
   weatherWarning?: boolean;
 }
 
@@ -113,6 +116,32 @@ export default function Scheduling() {
       return info;
     }
 
+    if (formData.appointment_id) {
+      const existingSchedule = schedules.find(
+        (s) => s.appointment_id === formData.appointment_id && s.status !== 'cancelled'
+      );
+      if (existingSchedule) {
+        info.hasConflict = true;
+        info.appointmentConflict = `此预约已在 ${existingSchedule.operation_date} 排期，请勿重复排班`;
+      }
+    }
+
+    if (formData.drone_id) {
+      const drone = mockDrones.find((d) => d.id === formData.drone_id);
+      if (drone && drone.status !== 'available' && drone.status !== 'in_use') {
+        info.hasConflict = true;
+        info.droneUnavailable = `无人机 ${drone.name} 当前状态为：${statusLabels[drone.status] || drone.status}，不可用`;
+      }
+    }
+
+    if (formData.pilot_id) {
+      const pilot = mockPilots.find((p) => p.id === formData.pilot_id);
+      if (pilot && pilot.status !== 'available' && pilot.status !== 'on_duty') {
+        info.hasConflict = true;
+        info.pilotUnavailable = `飞手 ${pilot.name} 当前状态为：${statusLabels[pilot.status] || pilot.status}，不可排班`;
+      }
+    }
+
     const daySchedules = schedules.filter(
       (s) => s.operation_date === formData.operation_date && s.status !== 'cancelled'
     );
@@ -120,7 +149,7 @@ export default function Scheduling() {
     const newStart = timeToMinutes(formData.start_time);
     const newEnd = timeToMinutes(formData.end_time);
 
-    if (formData.drone_id) {
+    if (!info.hasConflict && formData.drone_id) {
       const droneSchedules = daySchedules.filter((s) => s.drone_id === formData.drone_id);
       for (const s of droneSchedules) {
         const sStart = timeToMinutes(s.start_time || '00:00');
@@ -133,7 +162,7 @@ export default function Scheduling() {
       }
     }
 
-    if (formData.pilot_id) {
+    if (!info.hasConflict && formData.pilot_id) {
       const pilotSchedules = daySchedules.filter((s) => s.pilot_id === formData.pilot_id);
       for (const s of pilotSchedules) {
         const sStart = timeToMinutes(s.start_time || '00:00');
@@ -152,7 +181,7 @@ export default function Scheduling() {
     }
 
     return info;
-  }, [formData.operation_date, formData.start_time, formData.end_time, formData.drone_id, formData.pilot_id, schedules]);
+  }, [formData, schedules]);
 
   const handleSelectAppointment = (appointmentId: string) => {
     const apt = mockAppointments.find((a) => a.id === appointmentId);
@@ -214,6 +243,7 @@ export default function Scheduling() {
 
   const submitSchedule = () => {
     const weather = getWeatherForDate(new Date(formData.operation_date));
+    const hasWeatherRisk = checkConflicts.weatherWarning;
     const newSchedule: Schedule = {
       id: `s${Date.now()}`,
       appointment_id: formData.appointment_id,
@@ -229,6 +259,9 @@ export default function Scheduling() {
       weather_condition: weather?.condition || '晴',
       weather_suitability: weather?.suitability || 'good',
       notes: formData.notes,
+      has_weather_risk: hasWeatherRisk,
+      risk_confirmed: hasWeatherRisk,
+      created_at: new Date().toISOString(),
     };
 
     addSchedule(newSchedule);
@@ -419,9 +452,16 @@ export default function Scheduling() {
                       <p className="text-xs text-gray-500 truncate">
                         👤 {schedule.pilot_name}
                       </p>
-                      <p className={`text-xs mt-1 ${suitabilityColors[schedule.weather_suitability].replace('bg-', 'text-').replace('text-white', 'text-gray-600')}`}>
-                        {suitabilityLabels[schedule.weather_suitability]}
-                      </p>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <span className={`text-xs ${suitabilityColors[schedule.weather_suitability].replace('bg-', 'text-').replace('text-white', 'text-gray-600')}`}>
+                          {suitabilityLabels[schedule.weather_suitability]}
+                        </span>
+                        {schedule.has_weather_risk && (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded" title="带风险确认">
+                            <AlertTriangle className="w-3 h-3" /> 风险
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {daySchedules.length === 0 && (
@@ -641,7 +681,16 @@ export default function Scheduling() {
                     <div className="space-y-2">
                       {checkConflicts.hasConflict ? (
                         <>
-                          <p className="font-medium text-red-800">排班冲突</p>
+                          <p className="font-medium text-red-800">无法排班</p>
+                          {checkConflicts.appointmentConflict && (
+                            <p className="text-sm text-red-700">⚠️ {checkConflicts.appointmentConflict}</p>
+                          )}
+                          {checkConflicts.droneUnavailable && (
+                            <p className="text-sm text-red-700">⚠️ {checkConflicts.droneUnavailable}</p>
+                          )}
+                          {checkConflicts.pilotUnavailable && (
+                            <p className="text-sm text-red-700">⚠️ {checkConflicts.pilotUnavailable}</p>
+                          )}
                           {checkConflicts.droneConflict && (
                             <p className="text-sm text-red-700">⚠️ {checkConflicts.droneConflict}</p>
                           )}
