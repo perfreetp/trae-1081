@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Receipt,
   DollarSign,
@@ -64,6 +65,7 @@ const billItemTypeColors: Record<BillItemType, string> = {
 };
 
 export default function Billing() {
+  const location = useLocation();
   const { 
     bills, 
     addBill, 
@@ -72,9 +74,18 @@ export default function Billing() {
     addPaymentRecord,
     refundRecords,
     processRefund,
+    appointments,
   } = useAppStore();
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const status = params.get('status');
+    if (status) {
+      setStatusFilter(status);
+    }
+  }, [location.search]);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -163,9 +174,10 @@ export default function Billing() {
   };
 
   const handleSelectAppointment = (appointmentId: string) => {
-    const apt = mockAppointments.find((a) => a.id === appointmentId);
+    const apt = appointments.find((a) => a.id === appointmentId);
     if (apt) {
-      const total = apt.area_mu * apt.quoted_price;
+      const area = apt.measured_area || apt.area_mu;
+      const total = area * apt.quoted_price;
       setCreateForm({
         ...createForm,
         appointment_id: apt.id,
@@ -174,8 +186,9 @@ export default function Billing() {
         farmer_name: apt.farmer_name,
         farmer_phone: apt.farmer_phone,
         items: [{
-          name: '病虫害防治',
-          quantity: apt.area_mu,
+          type: 'service' as BillItemType,
+          name: apt.service_type,
+          quantity: area,
           unit_price: apt.quoted_price,
           subtotal: total,
         }],
@@ -622,18 +635,27 @@ export default function Billing() {
             </div>
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">关联预约（可选）</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">关联预约</label>
                 <select
                   value={createForm.appointment_id}
                   onChange={(e) => handleSelectAppointment(e.target.value)}
                   className="input-field"
                 >
-                  <option value="">手动填写</option>
-                  {mockAppointments.filter((a) => a.status === 'approved' || a.status === 'scheduled' || a.status === 'completed').slice(0, 10).map((apt) => (
-                    <option key={apt.id} value={apt.id}>
-                      {apt.farmland_name} - {apt.area_mu}亩 - ¥{(apt.area_mu * apt.quoted_price).toFixed(2)}
-                    </option>
-                  ))}
+                  <option value="">请选择预约（可选）</option>
+                  {appointments
+                    .filter((a) => 
+                      (a.status === 'signed' || a.status === 'photos_uploaded' || a.status === 'operation_completed') && 
+                      !a.bill_id
+                    )
+                    .map((apt) => {
+                      const area = apt.measured_area || apt.area_mu;
+                      const total = area * apt.quoted_price;
+                      return (
+                        <option key={apt.id} value={apt.id}>
+                          {apt.farmland_name} - {apt.service_type} - {area}亩 - ¥{total.toFixed(2)}
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 

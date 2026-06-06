@@ -31,7 +31,7 @@ export default function Surveying() {
     farmlands,
     appointments,
     updateAppointmentArea,
-    updateFarmlandArea,
+    updateFarmlandMeasuredArea,
   } = useAppStore();
   const [selectedSurvey, setSelectedSurvey] = useState<Survey | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -150,11 +150,12 @@ export default function Surveying() {
   };
 
   const handleSync = () => {
+    const measuredArea = selectedSurvey?.measured_area || parseFloat(drawnArea.toFixed(2));
     if (syncTarget === 'farmland' && selectedFarmlandId) {
-      updateFarmlandArea(selectedFarmlandId, parseFloat(drawnArea.toFixed(2)));
+      updateFarmlandMeasuredArea(selectedFarmlandId, measuredArea);
       alert('面积已同步到地块档案！');
     } else if (syncTarget === 'appointment' && selectedAppointmentId) {
-      updateAppointmentArea(selectedAppointmentId, parseFloat(drawnArea.toFixed(2)));
+      updateAppointmentArea(selectedAppointmentId, measuredArea);
       alert('面积已同步到预约！后续报价和账单将优先使用实测面积。');
     }
     setShowSyncModal(false);
@@ -177,14 +178,10 @@ export default function Surveying() {
   const center = getPolygonCenter();
 
   const availableAppointments = appointments.filter(
-    (a) => a.farmland_name === selectedSurvey?.farmland_name ||
-      a.farmland_id === selectedSurvey?.farmland_id
+    (a) => a.status === 'pending' || a.status === 'approved' || a.status === 'surveying'
   );
 
-  const availableFarmlands = farmlands.filter(
-    (f) => f.name === selectedSurvey?.farmland_name ||
-      f.id === selectedSurvey?.farmland_id
-  );
+  const availableFarmlands = farmlands;
 
   return (
     <div className="space-y-6 animate-fade-in">

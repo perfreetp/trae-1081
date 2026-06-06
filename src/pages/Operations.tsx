@@ -29,7 +29,7 @@ interface SelectedFile {
 }
 
 export default function Operations() {
-  const { operations, operationPhotos, addOperationPhoto } = useAppStore();
+  const { operations, operationPhotos, addOperationPhoto, signAppointment, appointments } = useAppStore();
   const [selectedOperation, setSelectedOperation] = useState<Operation | null>(
     operations.find((o) => o.status === 'in_progress') || null
   );
@@ -41,6 +41,8 @@ export default function Operations() {
   const [previewMedia, setPreviewMedia] = useState<{ url: string; media_type: MediaType } | null>(null);
   const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video'>('all');
   const [phaseFilter, setPhaseFilter] = useState<'all' | 'before' | 'during' | 'after'>('all');
+  const [showSignModal, setShowSignModal] = useState(false);
+  const [farmerName, setFarmerName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredOperations = operations.filter(
@@ -127,6 +129,23 @@ export default function Operations() {
     before: filteredPhotos.filter((p) => p.type === 'before'),
     during: filteredPhotos.filter((p) => p.type === 'during'),
     after: filteredPhotos.filter((p) => p.type === 'after'),
+  };
+
+  const hasAfterPhotos = currentPhotos.some((p) => p.type === 'after');
+  const hasMeasuredArea = selectedOperation && selectedOperation.actual_area > 0;
+  const relatedAppointment = selectedOperation?.appointment_id 
+    ? appointments.find((a) => a.id === selectedOperation.appointment_id)
+    : null;
+  const isSigned = relatedAppointment?.signed_at ? true : false;
+
+  const canSign = hasAfterPhotos && hasMeasuredArea && !isSigned;
+
+  const handleSign = () => {
+    if (!canSign || !relatedAppointment) return;
+    signAppointment(relatedAppointment.id, farmerName || relatedAppointment.farmer_name);
+    setShowSignModal(false);
+    setFarmerName('');
+    alert('农户签收成功！预约已进入待结算状态。');
   };
 
   const renderMediaThumbnail = (photo: OperationPhoto) => {
@@ -496,6 +515,68 @@ export default function Operations() {
                   </div>
                 </div>
               </div>
+
+              <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-gray-800">农户签收</h3>
+                  {isSigned ? (
+                    <span className="badge badge-success">已签收</span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (relatedAppointment) setFarmerName(relatedAppointment.farmer_name);
+                        setShowSignModal(true);
+                      }}
+                      disabled={!canSign}
+                      className="btn-primary text-sm py-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      农户签收
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    {hasAfterPhotos ? (
+                      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                    )}
+                    <span className={hasAfterPhotos ? 'text-gray-700' : 'text-orange-600'}>
+                      作业后素材：{hasAfterPhotos ? '已上传' : '请上传作业后照片/视频'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {hasMeasuredArea ? (
+                      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                    )}
+                    <span className={hasMeasuredArea ? 'text-gray-700' : 'text-orange-600'}>
+                      实测面积：{hasMeasuredArea ? '已确认' : '请先完成面积复核'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {isSigned ? (
+                      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    )}
+                    <span className={isSigned ? 'text-gray-700' : 'text-gray-500'}>
+                      农户签收：{isSigned ? `已由 ${relatedAppointment?.signed_by || '农户'} 签收` : '完成上述两项后可签收'}
+                    </span>
+                  </div>
+                </div>
+
+                {!canSign && !isSigned && (
+                  <div className="mt-4 p-3 bg-orange-50 rounded-lg">
+                    <p className="text-sm text-orange-700">
+                      ⚠️ 请先完成作业后素材上传和面积复核，才能进行农户签收
+                    </p>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <div className="bg-white rounded-xl p-16 shadow-sm border border-gray-100 text-center">
@@ -645,6 +726,63 @@ export default function Operations() {
               onClick={(e) => e.stopPropagation()}
             />
           )}
+        </div>
+      )}
+
+      {showSignModal && relatedAppointment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md animate-slide-up">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <CheckCircle className="w-6 h-6 text-green-500" />
+                农户签收确认
+              </h3>
+              <p className="text-gray-500 text-sm mt-1">
+                地块：{relatedAppointment.farmland_name}
+              </p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="bg-green-50 rounded-xl p-4 space-y-2">
+                <p className="text-sm text-green-700 font-medium">签收前请确认：</p>
+                <ul className="text-sm text-green-600 space-y-1">
+                  <li>✅ 作业后照片/视频已上传</li>
+                  <li>✅ 实测面积已确认</li>
+                  <li>✅ 作业质量符合要求</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  农户姓名
+                </label>
+                <input
+                  type="text"
+                  value={farmerName}
+                  onChange={(e) => setFarmerName(e.target.value)}
+                  placeholder="请输入农户姓名"
+                  className="input-field"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowSignModal(false);
+                  setFarmerName('');
+                }}
+                className="px-5 py-2.5 border border-gray-200 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button 
+                onClick={handleSign} 
+                disabled={!farmerName.trim()}
+                className="btn-primary px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认签收
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

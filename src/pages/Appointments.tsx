@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -31,28 +31,48 @@ const STATUS_FLOW: AppointmentStatus[] = [
   'in_progress', 'photos_uploaded', 'signed', 'settled'
 ];
 
-const STATUS_STEP_LABELS: Record<AppointmentStatus, string> = {
-  pending: '待审核',
-  approved: '待测绘',
-  surveying: '测绘中',
-  surveyed: '待排班',
-  scheduling: '排班中',
-  scheduled: '待作业',
-  in_progress: '作业中',
-  operation_completed: '待回传',
-  photos_uploaded: '待签收',
-  signed: '待结算',
-  pending_settlement: '待结算',
-  settled: '已结清',
-  cancelled: '已取消',
+const STATUS_TO_STEP: Record<AppointmentStatus, number> = {
+  pending: 0,
+  approved: 1,
+  surveying: 1,
+  surveyed: 2,
+  scheduling: 2,
+  scheduled: 3,
+  in_progress: 4,
+  operation_completed: 4,
+  photos_uploaded: 5,
+  signed: 6,
+  pending_settlement: 6,
+  settled: 7,
+  cancelled: -1,
+};
+
+const STATUS_STEP_LABELS: Record<number, string> = {
+  0: '待审核',
+  1: '待测绘',
+  2: '待排班',
+  3: '待作业',
+  4: '待回传',
+  5: '待签收',
+  6: '待结算',
+  7: '已结清',
 };
 
 export default function Appointments() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { appointments, addAppointment, updateAppointmentStatus, schedules, bills } = useAppStore();
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const status = params.get('status');
+    if (status) {
+      setStatusFilter(status);
+    }
+  }, [location.search]);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [formData, setFormData] = useState({
     farmland_id: '',
@@ -146,8 +166,7 @@ export default function Appointments() {
   };
 
   const getCurrentStepIndex = (status: AppointmentStatus) => {
-    const idx = STATUS_FLOW.indexOf(status);
-    return idx >= 0 ? idx : -1;
+    return STATUS_TO_STEP[status] ?? -1;
   };
 
   const getRelatedSchedule = (apt: Appointment) => {
@@ -601,13 +620,13 @@ export default function Appointments() {
               <div className="bg-gray-50 rounded-xl p-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-4">流程进度</h4>
                 <div className="flex items-center justify-between">
-                  {STATUS_FLOW.slice(0, 6).map((status, idx) => {
+                  {Array.from({ length: 8 }).map((_, idx) => {
                     const currentIdx = getCurrentStepIndex(selectedAppointment.status);
                     const isCompleted = currentIdx >= idx;
                     const isCurrent = currentIdx === idx;
                     
                     return (
-                      <div key={status} className="flex-1 flex flex-col items-center relative">
+                      <div key={idx} className="flex-1 flex flex-col items-center relative">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
                           isCompleted 
                             ? 'bg-primary-500 text-white' 
@@ -616,9 +635,9 @@ export default function Appointments() {
                           {isCompleted ? <Check className="w-4 h-4" /> : idx + 1}
                         </div>
                         <p className={`text-xs mt-2 text-center ${isCompleted ? 'text-primary-600 font-medium' : 'text-gray-400'}`}>
-                          {STATUS_STEP_LABELS[status]}
+                          {STATUS_STEP_LABELS[idx]}
                         </p>
-                        {idx < 5 && (
+                        {idx < 7 && (
                           <div className={`absolute top-4 left-1/2 w-full h-0.5 -translate-y-1/2 ${
                             currentIdx > idx ? 'bg-primary-500' : 'bg-gray-200'
                           }`} />

@@ -15,15 +15,17 @@ import {
   Leaf,
   TrendingUp,
 } from 'lucide-react';
-import { mockFarmlands, mockCropCycles, mockPestRecords } from '@/data/mockData';
+import { mockCropCycles, mockPestRecords } from '@/data/mockData';
+import { useAppStore } from '@/store/useAppStore';
 import type { Farmland } from '@/data/types';
 
 export default function Farmlands() {
+  const { farmlands } = useAppStore();
   const [selectedFarmland, setSelectedFarmland] = useState<Farmland | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'info' | 'crop' | 'pest'>('info');
 
-  const filteredFarmlands = mockFarmlands.filter(
+  const filteredFarmlands = farmlands.filter(
     (f) =>
       f.name.includes(searchTerm) ||
       f.location.includes(searchTerm) ||

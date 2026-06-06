@@ -101,7 +101,7 @@ export default function Dashboard() {
 
   const statCards = useMemo(() => [
     { label: '待审核预约', value: stats.pendingReview, unit: '单', icon: CalendarClock, color: 'from-red-500 to-red-600', bg: 'bg-red-50', onClick: () => navigate('/appointments?status=pending') },
-    { label: '待测绘', value: stats.pendingSurvey, unit: '单', icon: MapPin, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50', onClick: () => navigate('/surveys?status=pending') },
+    { label: '待测绘', value: stats.pendingSurvey, unit: '单', icon: MapPin, color: 'from-orange-500 to-orange-600', bg: 'bg-orange-50', onClick: () => navigate('/surveying') },
     { label: '待排班', value: stats.pendingScheduling, unit: '单', icon: CalendarClock, color: 'from-yellow-500 to-yellow-600', bg: 'bg-yellow-50', onClick: () => navigate('/appointments?status=surveyed') },
     { label: '今日排班', value: stats.todaySchedules, unit: '架', icon: Plane, color: 'from-sky-500 to-sky-600', bg: 'bg-sky-50', onClick: () => navigate('/scheduling') },
     { label: '本周排班', value: stats.weekSchedules, unit: '架', icon: Plane, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/scheduling') },

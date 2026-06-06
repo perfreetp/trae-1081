@@ -41,7 +41,7 @@ interface ConflictInfo {
 }
 
 export default function Scheduling() {
-  const { schedules, addSchedule } = useAppStore();
+  const { schedules, addSchedule, appointments } = useAppStore();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -184,7 +184,7 @@ export default function Scheduling() {
   }, [formData, schedules]);
 
   const handleSelectAppointment = (appointmentId: string) => {
-    const apt = mockAppointments.find((a) => a.id === appointmentId);
+    const apt = appointments.find((a) => a.id === appointmentId);
     if (apt) {
       setFormData({
         ...formData,
@@ -712,18 +712,23 @@ export default function Scheduling() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">选择作业（可选）</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">关联预约</label>
                 <select
                   value={formData.appointment_id}
                   onChange={(e) => handleSelectAppointment(e.target.value)}
                   className="input-field"
                 >
-                  <option value="">手动填写</option>
-                  {mockAppointments.filter((a) => a.status === 'approved' || a.status === 'scheduled').slice(0, 10).map((apt) => (
-                    <option key={apt.id} value={apt.id}>
-                      {apt.farmland_name} - {apt.area_mu}亩
-                    </option>
-                  ))}
+                  <option value="">请选择预约（可选）</option>
+                  {appointments
+                    .filter((a) => 
+                      (a.status === 'approved' || a.status === 'surveyed') && 
+                      !a.schedule_id
+                    )
+                    .map((apt) => (
+                      <option key={apt.id} value={apt.id}>
+                        {apt.farmland_name} - {apt.service_type} - {apt.measured_area || apt.area_mu}亩
+                      </option>
+                    ))}
                 </select>
               </div>
 
